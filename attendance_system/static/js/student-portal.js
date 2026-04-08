@@ -663,7 +663,7 @@ function showDeviceHelpModal(studentId) {
             <li>Optional proof of identity if needed</li>
           </ul>
           <p style="margin:0 0 1rem; color: var(--text-300); line-height:1.6;">
-            If you lost your registered device or want to use a new one, please send an email to <a href="mailto:eccattendance.mail@gmail.com?subject=Device%20Registration%20Request&body=Hi%2C%20I%20want%20to%20register%20on%20a%20new%20device.%20My%20student%20ID%20is%3A%20${encodeURIComponent(studentId)}" style="color: var(--blue-400); text-decoration:underline;">support@yourdomain.com</a> to confirm your identity.
+            If you lost your registered device or want to use a new one, please send an email to <a href="mailto:eccattendance.mail@gmail.com?subject=Device%20Registration%20Request&body=Hi%2C%20I%20want%20to%20register%20on%20a%20new%20device.%20My%20student%20ID%20is%3A%20${encodeURIComponent(studentId)}" style="color: var(--blue-400); text-decoration:underline;">eccattendance.mail@gmail.com</a> to confirm your identity.
           </p>
           <p style="margin:0 0 1rem; color: var(--text-300); line-height:1.6;">
             We will reply to your email shortly with instructions to register on a new device.

@@ -103,9 +103,6 @@ def send_otp_email(student_email, student_name, otp_code):
     """
     
     try:
-        print("Sending OTP email with backend:", settings.EMAIL_BACKEND)
-        print("SMTP host:", settings.EMAIL_HOST)
-        print("SMTP user:", settings.EMAIL_HOST_USER)
         send_mail(
             subject=subject,
             message=plain_message,
@@ -114,10 +111,10 @@ def send_otp_email(student_email, student_name, otp_code):
             html_message=html_message,
             fail_silently=False,
         )
+        logger.info(f"OTP email sent successfully to {student_email}")
         return True
     except Exception as e:
-        logger.exception("Error sending OTP email")
-        print("Error sending OTP email:", str(e))
+        logger.exception(f"Error sending OTP email to {student_email}: {str(e)}")
         return False
 
 
