@@ -38,7 +38,7 @@ ALLOWED_HOSTS = [
     host.strip()
     for host in os.environ.get(
         'DJANGO_ALLOWED_HOSTS',
-        '127.0.0.1,localhost,ecc-attendance-system.onrender.com,testserver'
+        '127.0.0.1,localhost,eccattendance.onrender.com,testserver'
     ).split(',')
     if host.strip()
 ]
@@ -177,7 +177,7 @@ CORS_ALLOWED_ORIGINS = [
     origin.strip()
     for origin in os.environ.get(
         'CORS_ALLOWED_ORIGINS',
-        'http://127.0.0.1:5500,http://localhost:5500,http://127.0.0.1:3000,http://localhost:3000,http://127.0.0.1:5173,http://localhost:5173,https://ecc-attendance-system.onrender.com'
+        'http://127.0.0.1:5500,http://localhost:5500,http://127.0.0.1:3000,http://localhost:3000,http://127.0.0.1:5173,http://localhost:5173,https://eccattendance.onrender.com'
     ).split(',')
     if origin.strip()
 ]
@@ -230,7 +230,7 @@ CSRF_TRUSTED_ORIGINS = [
     origin.strip()
     for origin in os.environ.get(
         'CSRF_TRUSTED_ORIGINS',
-        'http://127.0.0.1:5500,http://localhost:5500,http://127.0.0.1:3000,http://localhost:3000,https://ecc-attendance-system.onrender.com'
+        'http://127.0.0.1:5500,http://localhost:5500,http://127.0.0.1:3000,http://localhost:3000,https://eccattendance.onrender.com'
     ).split(',')
     if origin.strip()
 ]
