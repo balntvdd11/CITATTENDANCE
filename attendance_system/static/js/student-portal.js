@@ -165,22 +165,6 @@ document.getElementById("registerForm").addEventListener("submit", async (e) => 
   const deviceFingerprint = generateDeviceFingerprint();
   const newStudentId = document.getElementById("student_id").value.trim();
   
-  // Scenario 3: Check if this device already has a registered student
-  const existingRegistrationStr = getCookie("ecc_registration_data");
-  if (existingRegistrationStr) {
-    try {
-      const existingReg = JSON.parse(existingRegistrationStr);
-      if (existingReg.student_id && existingReg.student_id !== newStudentId) {
-        // Device has a registration for a different student ID
-        showToast("This device already has a registered account. Registration is not allowed.", "error");
-        registerBtn.innerHTML = orig; registerBtn.classList.remove("btn-loading");
-        return;
-      }
-    } catch (err) {
-      // Ignore parsing errors
-    }
-  }
-  
   const payload = {
     student_id: newStudentId,
     name: fullName,
