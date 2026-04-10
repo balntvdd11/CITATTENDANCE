@@ -841,8 +841,11 @@ def generate_qr(request):
 
     # Device binding check ensures the current browser/device matches the registered fingerprint.
     if student.device_fingerprint and student.device_fingerprint != device_fingerprint:
-        # Check if temporarily authorized for this session
-        if request.session.get('temp_authorized_student_id') != student.student_id:
+        # Same account in a different browser on the same device can still proceed
+        # when it presents the account's valid private key.
+        temp_authorized = request.session.get('temp_authorized_student_id') == student.student_id
+        key_authorized = bool(private_key and student.private_key and private_key == student.private_key)
+        if not temp_authorized and not key_authorized:
             # Device not recognized - show modal
             return Response(
                 {
