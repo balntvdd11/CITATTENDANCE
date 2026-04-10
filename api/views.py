@@ -828,9 +828,6 @@ def generate_qr(request):
     if not all([student_id, session_code]):
         return Response({"error": "Session code and student ID are required"}, status=400)
 
-    if not private_key:
-        return Response({"error": "Private key is required for QR generation"}, status=400)
-
     try:
         student = Student.objects.get(student_id=student_id)
     except Student.DoesNotExist:
@@ -862,13 +859,25 @@ def generate_qr(request):
     if student.section != session.section:
         return Response({"error": "Student section does not match the selected session"}, status=400)
 
+    # Allow QR generation per browser context by using the provided key when valid,
+    # with a safe fallback to the account's stored key.
+    signing_key = private_key or (student.private_key or "")
+    if not signing_key:
+        return Response({"error": "Private key is required for QR generation"}, status=400)
+
     timestamp = timezone.now().isoformat()
     message = f"{student_id}|{student.section}|{session.session_code}|{timestamp}"
 
     try:
-        signature = sign_message(private_key, message)
+        signature = sign_message(signing_key, message)
     except Exception:
-        return Response({"error": "QR generation failed due to invalid private key"}, status=400)
+        fallback_key = student.private_key or ""
+        if not fallback_key or fallback_key == signing_key:
+            return Response({"error": "QR generation failed due to invalid private key"}, status=400)
+        try:
+            signature = sign_message(fallback_key, message)
+        except Exception:
+            return Response({"error": "QR generation failed due to invalid private key"}, status=400)
 
     raw_payload = f"{student_id}|{student.section}|{session.session_code}|{timestamp}|{signature}"
     return Response(
