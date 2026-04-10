@@ -652,6 +652,11 @@ function showLoginModal() {
       const data = await res.json();
 
       if (!res.ok) {
+        if (handleDeletedStudentResponse(res, data)) {
+          loginBtn.innerHTML = orig; loginBtn.classList.remove("btn-loading");
+          closeLoginModal();
+          return;
+        }
         showToast(data.error || "Login failed.", "error");
         loginBtn.innerHTML = orig; loginBtn.classList.remove("btn-loading");
         return;
