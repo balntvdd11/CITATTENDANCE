@@ -839,22 +839,16 @@ def generate_qr(request):
             status=404
         )
 
-    # Device binding check ensures the current browser/device matches the registered fingerprint.
-    if student.device_fingerprint and student.device_fingerprint != device_fingerprint:
-        # Same account in a different browser on the same device can still proceed
-        # when it presents the account's valid private key.
-        temp_authorized = request.session.get('temp_authorized_student_id') == student.student_id
-        key_authorized = bool(private_key and student.private_key and private_key == student.private_key)
-        if not temp_authorized and not key_authorized:
-            # Device not recognized - show modal
-            return Response(
-                {
-                    "show_modal": True,
-                    "modal_message": "This account is not recognized on this device.",
-                    "error": "Device not recognized",
-                },
-                status=403
-            )
+    # QR authorization is based on authenticated session or a valid account private key.
+    # It intentionally does not depend on browser fingerprint to support same-device,
+    # cross-browser QR generation for the same account.
+    session_authorized = bool(
+        (getattr(request, "user", None) and request.user.is_authenticated)
+        or request.session.get("temp_authorized_student_id") == student.student_id
+    )
+    key_authorized = bool(private_key and student.private_key and private_key == student.private_key)
+    if not session_authorized and not key_authorized:
+        return Response({"error": "Unauthorized QR generation request"}, status=403)
 
     session = Session.objects.filter(session_code=session_code, status="ACTIVE").first()
     if not session:
@@ -862,9 +856,7 @@ def generate_qr(request):
     if student.section != session.section:
         return Response({"error": "Student section does not match the selected session"}, status=400)
 
-    # Allow QR generation per browser context by using the provided key when valid,
-    # with a safe fallback to the account's stored key.
-    signing_key = private_key or (student.private_key or "")
+    signing_key = private_key if key_authorized else (student.private_key or "")
     if not signing_key:
         return Response({"error": "Private key is required for QR generation"}, status=400)
 
@@ -874,13 +866,7 @@ def generate_qr(request):
     try:
         signature = sign_message(signing_key, message)
     except Exception:
-        fallback_key = student.private_key or ""
-        if not fallback_key or fallback_key == signing_key:
-            return Response({"error": "QR generation failed due to invalid private key"}, status=400)
-        try:
-            signature = sign_message(fallback_key, message)
-        except Exception:
-            return Response({"error": "QR generation failed due to invalid private key"}, status=400)
+        return Response({"error": "QR generation failed due to invalid private key"}, status=400)
 
     raw_payload = f"{student_id}|{student.section}|{session.session_code}|{timestamp}|{signature}"
     return Response(
