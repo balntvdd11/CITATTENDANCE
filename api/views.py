@@ -752,7 +752,7 @@ def activate_browser(request):
 
     if not private_key_matches_public_hex(private_key, public_key):
         return Response(
-            {"error": "The provided private key does not match the provided public key."},
+            {"error": "The provided private key does not match the provided public key. Click the activate button again."},
             status=400,
         )
 
