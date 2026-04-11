@@ -228,6 +228,16 @@ async function activateBrowserForStudent(studentId, deviceFingerprint) {
 // Device fingerprint generation and management
 // Generate a device fingerprint from stable hardware/device traits only.
 // This ensures same physical devices are grouped together across browsers.
+function normalizePlatform(platform) {
+  const value = (platform || "").toLowerCase();
+  if (value.includes("iphone") || value.includes("ipad") || value.includes("ipod")) return "ios";
+  if (value.includes("android")) return "android";
+  if (value.includes("mac")) return "mac";
+  if (value.includes("win")) return "windows";
+  if (value.includes("linux")) return "linux";
+  return value || "unknown";
+}
+
 function getDeviceFingerprintComponents(options = {}) {
   const width = screen.width || 0;
   const height = screen.height || 0;
@@ -235,15 +245,15 @@ function getDeviceFingerprintComponents(options = {}) {
   const maxDim = Math.max(width, height);
   const dims = options.useActualDimensions ? `${width}x${height}` : `${minDim}x${maxDim}`;
   const devicePixelRatio = Math.round((window.devicePixelRatio || 1) * 100) / 100;
+  const language = (navigator.language || (navigator.languages && navigator.languages[0]) || "").toLowerCase();
 
   const components = [
+    normalizePlatform(navigator.platform),
     dims,
     devicePixelRatio,
-    screen.colorDepth || "",
-    screen.pixelDepth || "",
     navigator.hardwareConcurrency || "",
     navigator.maxTouchPoints || "",
-    navigator.deviceMemory || "",
+    language,
     new Date().getTimezoneOffset(),
   ];
 
