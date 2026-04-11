@@ -728,10 +728,14 @@ def student_login(request):
 def activate_browser(request):
     student_id = str(request.data.get("student_id", "")).strip()
     public_key = str(request.data.get("public_key", "")).strip()
+    private_key = str(request.data.get("private_key", "")).strip()
     device_fingerprint = str(request.data.get("device_fingerprint", "")).strip()
 
-    if not all([student_id, public_key, device_fingerprint]):
-        return Response({"error": "Student ID, public key, and device fingerprint are required."}, status=400)
+    if not all([student_id, public_key, private_key, device_fingerprint]):
+        return Response(
+            {"error": "Student ID, public key, private key, and device fingerprint are required."},
+            status=400,
+        )
 
     try:
         student = Student.objects.get(student_id=student_id)
@@ -740,6 +744,12 @@ def activate_browser(request):
 
     if not is_valid_public_key_hex(public_key):
         return Response({"error": "Invalid public key format."}, status=400)
+
+    if not private_key_matches_public_hex(private_key, public_key):
+        return Response(
+            {"error": "The provided private key does not match the provided public key."},
+            status=400,
+        )
 
     student.public_key = public_key
     student.device_fingerprint = device_fingerprint

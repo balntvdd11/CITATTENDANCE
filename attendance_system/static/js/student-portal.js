@@ -164,9 +164,16 @@ async function activateBrowserForStudent(studentId, deviceFingerprint) {
     throw new Error("Unable to activate browser because student or device fingerprint is missing.");
   }
 
-  const keys = await generateEccKeyPair();
-  setStoredPrivateKey(keys.privateKey);
-  setStoredPublicKey(keys.publicKey);
+  let privateKey = getStoredPrivateKey();
+  let publicKey = getStoredPublicKey();
+
+  if (!privateKey || !publicKey) {
+    const keys = await generateEccKeyPair();
+    privateKey = keys.privateKey;
+    publicKey = keys.publicKey;
+    setStoredPrivateKey(privateKey);
+    setStoredPublicKey(publicKey);
+  }
 
   try {
     await fetch(`${API_BASE}/api/csrf/`, { credentials: "include" });
@@ -180,7 +187,8 @@ async function activateBrowserForStudent(studentId, deviceFingerprint) {
       credentials: "include",
       body: JSON.stringify({
         student_id: studentId,
-        public_key: keys.publicKey,
+        public_key: publicKey,
+        private_key: privateKey,
         device_fingerprint: deviceFingerprint,
       }),
     });
@@ -947,25 +955,8 @@ function handleLoginSuccess(data, deviceFingerprint) {
     setStoredPrivateKey(data.private_key);
   }
 
-  const hasPrivateKey = !!getStoredPrivateKey();
   const studentId = data.student.student_id;
-
-  if (!hasPrivateKey) {
-    showToast(
-      "This browser is not registered. Do you want to activate this browser as your device?",
-      "warning"
-    );
-    renderActivationPrompt(studentId, deviceFingerprint, {
-      message: "This browser is not registered. Do you want to activate this browser as your device?",
-    });
-  } else if (data.device_mismatch) {
-    showToast(data.message || "Your account is already registered on another device. This device is not authorized to generate a QR pass.", "warning");
-    renderActivationPrompt(studentId, deviceFingerprint, {
-      message: data.message || "This browser is not registered. Do you want to activate this browser as your device?",
-    });
-  } else {
-    clearActivationPrompt();
-  }
+  clearActivationPrompt();
 
   const registerForm = document.getElementById("registerForm");
   const alreadyRegistered = document.getElementById("alreadyRegistered");
@@ -1076,12 +1067,6 @@ async function checkRegistrationStatus() {
       
       // Pre-populate QR panel with student ID (for when they navigate to QR)
       document.getElementById("qr_student_id").value = registrationData.student_id;
-
-      if (!getStoredPrivateKey()) {
-        renderActivationPrompt(registrationData.student_id, currentDeviceFingerprint, {
-          message: "This browser is not registered. Do you want to activate this browser as your device?",
-        });
-      }
     }
   } catch (e) {
   }
