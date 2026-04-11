@@ -203,9 +203,6 @@ function generateDeviceFingerprint() {
     navigator.maxTouchPoints || "",
     new Date().getTimezoneOffset(),
     screen.orientation ? screen.orientation.type : "",
-    !!window.sessionStorage,
-    !!window.localStorage,
-    !!window.indexedDB,
   ].join('|');
   return btoa(fingerprint).replace(/[^a-zA-Z0-9]/g, '').substr(0, 32);
 }
