@@ -226,23 +226,8 @@ async function activateBrowserForStudent(studentId, deviceFingerprint) {
 }
 
 // Device fingerprint generation and management
-// Generate a device fingerprint from browser/hardware properties.
-// Used to recognize the same device across browsers.
-function normalizePlatform(platform) {
-  const value = (platform || "").toLowerCase();
-  if (value.includes("iphone") || value.includes("ipad") || value.includes("ipod")) return "ios";
-  if (value.includes("android")) return "android";
-  if (value.includes("mac")) return "mac";
-  if (value.includes("win")) return "windows";
-  if (value.includes("linux")) return "linux";
-  return value || "unknown";
-}
-
-function isFacebookInAppBrowser() {
-  const ua = navigator.userAgent || "";
-  return /FBAN|FBAV|FB_IAB|FBIOS|Instagram|Messenger/i.test(ua);
-}
-
+// Generate a device fingerprint from stable hardware/device traits only.
+// This ensures same physical devices are grouped together across browsers.
 function getDeviceFingerprintComponents(options = {}) {
   const width = screen.width || 0;
   const height = screen.height || 0;
@@ -250,19 +235,23 @@ function getDeviceFingerprintComponents(options = {}) {
   const maxDim = Math.max(width, height);
   const dims = options.useActualDimensions ? `${width}x${height}` : `${minDim}x${maxDim}`;
   const devicePixelRatio = Math.round((window.devicePixelRatio || 1) * 100) / 100;
-  const orientation = options.includeOrientation && screen.orientation ? screen.orientation.type : "";
 
-  return [
-    normalizePlatform(navigator.platform),
+  const components = [
     dims,
     devicePixelRatio,
     screen.colorDepth || "",
     screen.pixelDepth || "",
     navigator.hardwareConcurrency || "",
     navigator.maxTouchPoints || "",
+    navigator.deviceMemory || "",
     new Date().getTimezoneOffset(),
-    orientation,
-  ].join('|');
+  ];
+
+  if (options.includeOrientation && screen.orientation && screen.orientation.type) {
+    components.push(screen.orientation.type);
+  }
+
+  return components.join('|');
 }
 
 function computeDeviceFingerprint(options = {}) {
@@ -280,12 +269,6 @@ function generateDeviceFingerprintCandidates() {
   candidates.add(computeDeviceFingerprint({ includeOrientation: true }));
   candidates.add(computeDeviceFingerprint({ useActualDimensions: true, includeOrientation: false }));
   candidates.add(computeDeviceFingerprint({ useActualDimensions: true, includeOrientation: true }));
-
-  if (isFacebookInAppBrowser()) {
-    candidates.add(computeDeviceFingerprint({ useActualDimensions: true, includeOrientation: false }));
-    candidates.add(computeDeviceFingerprint({ useActualDimensions: true, includeOrientation: true }));
-  }
-
   return Array.from(candidates).filter(Boolean);
 }
 
@@ -326,6 +309,7 @@ async function maybeShowGlobalBrowserActivationPrompt() {
     return;
   }
 
+  const currentFingerprint = generateDeviceFingerprint();
   renderActivationPrompt(registrationData.student_id, currentFingerprint, {
     message:
       "Do you want to activate this browser to continue? Activating this browser will transfer your secure key and invalidate your other browser sessions.",
