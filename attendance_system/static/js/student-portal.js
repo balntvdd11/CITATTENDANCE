@@ -168,47 +168,87 @@ async function verifyStoredStudentOnLoad(studentId) {
   }
 }
 
-// Handle submission of the student registration form, including frontend validation.
-document.getElementById("registerForm").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const orig = registerBtn.innerHTML;
-  registerBtn.innerHTML = '<span class="spinner"></span> Registering…';
-  registerBtn.classList.add("btn-loading");
+function handleRegisterConfirmModalEscape(e) {
+  if (e.key === "Escape") closeRegisterConfirmModal();
+}
 
-  // Combine name fields and convert to uppercase
-  const firstName = document.getElementById("firstName").value.trim().toUpperCase();
-  const middleInitial = document.getElementById("middleInitial").value.trim().toUpperCase();
-  const lastName = document.getElementById("lastName").value.trim().toUpperCase();
-  const suffix = document.getElementById("suffix").value.trim().toUpperCase();
-
-  // Build full name
-  let fullName = firstName;
-  if (middleInitial) fullName += ` ${middleInitial}`;
-  fullName += ` ${lastName}`;
-  if (suffix) fullName += ` ${suffix}`;
-  fullName = fullName.trim();
-
-  // Validate email format
-  const email = document.getElementById("email").value.trim().toLowerCase();
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (!email || !emailRegex.test(email)) {
-    showToast("Please enter a valid email address.", "error");
-    registerBtn.innerHTML = orig; registerBtn.classList.remove("btn-loading"); return;
+function closeRegisterConfirmModal() {
+  const overlay = document.getElementById("registerConfirmOverlay");
+  if (overlay) {
+    const modal = overlay.querySelector(".otp-modal");
+    overlay.style.opacity = "0";
+    if (modal) modal.style.transform = "scale(0.9)";
+    setTimeout(() => overlay.remove(), 300);
   }
+  document.removeEventListener("keydown", handleRegisterConfirmModalEscape);
+}
 
-  const deviceFingerprint = generateDeviceFingerprint();
-  const newStudentId = document.getElementById("student_id").value.trim();
+// Ask the student to confirm device/browser binding before calling the register API.
+function showRegisterConfirmModal(payload, registerBtnOrig) {
+  const modalHTML = `
+    <div class="otp-modal-overlay" id="registerConfirmOverlay" style="opacity: 0; transition: opacity 0.3s ease;">
+      <div class="otp-modal" style="max-width: 420px; transform: scale(0.9); transition: transform 0.3s ease;">
+        <div class="otp-modal-header">
+          <h3>Confirm registration</h3>
+          <button type="button" class="otp-modal-close" onclick="closeRegisterConfirmModal()">×</button>
+        </div>
+        <div class="otp-modal-body" style="padding: 1rem 1.25rem;">
+          <p style="margin:0 0 1.25rem; color: var(--text-300); line-height:1.6; text-align: center;">
+            Are you sure you want to register on this device and browser?
+          </p>
+          <label class="register-confirm-check">
+            <input type="checkbox" id="registerConfirmAck" />
+            <span>I understand my attendance identity and signing key will be tied to this device and browser.</span>
+          </label>
+          <div style="display:flex; flex-direction:column; gap:0.75rem; margin-top:1.25rem;">
+            <button type="button" class="btn btn-primary btn-full" id="registerConfirmContinue" disabled>
+              Continue
+            </button>
+            <button type="button" class="btn btn-ghost btn-full" onclick="closeRegisterConfirmModal()">
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.insertAdjacentHTML("beforeend", modalHTML);
+  const overlay = document.getElementById("registerConfirmOverlay");
+  const modal = overlay.querySelector(".otp-modal");
+  const chk = document.getElementById("registerConfirmAck");
+  const btnContinue = document.getElementById("registerConfirmContinue");
 
-  const payload = {
-    student_id: newStudentId,
-    name: fullName,
-    email: email,
-    section: document.getElementById("section").value,
-    device_fingerprint: deviceFingerprint,
-  };
+  chk.addEventListener("change", () => {
+    btnContinue.disabled = !chk.checked;
+  });
 
+  setTimeout(() => {
+    overlay.style.opacity = "1";
+    modal.style.transform = "scale(1)";
+  }, 10);
+
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) closeRegisterConfirmModal();
+  });
+  document.addEventListener("keydown", handleRegisterConfirmModalEscape);
+
+  btnContinue.addEventListener("click", async () => {
+    if (!chk.checked) return;
+    document.removeEventListener("keydown", handleRegisterConfirmModalEscape);
+    overlay.style.opacity = "0";
+    modal.style.transform = "scale(0.9)";
+    setTimeout(() => overlay.remove(), 300);
+
+    registerBtn.innerHTML = '<span class="spinner"></span> Registering…';
+    registerBtn.classList.add("btn-loading");
+    await submitStudentRegistration(payload, registerBtnOrig);
+  });
+}
+
+// POST registration payload and apply the same success / error handling as before.
+async function submitStudentRegistration(payload, registerBtnOrig) {
+  const deviceFingerprint = payload.device_fingerprint;
   try {
-    // Fetch CSRF token before POST
     await fetch(`${API_BASE}/api/csrf/`, { credentials: "include" });
 
     const headers = { "Content-Type": "application/json" };
@@ -216,7 +256,7 @@ document.getElementById("registerForm").addEventListener("submit", async (e) => 
     if (csrfToken) headers["X-CSRFToken"] = csrfToken;
 
     const res = await fetch(`${API_BASE}/api/register/`, {
-      method: "POST", 
+      method: "POST",
       headers: headers,
       credentials: "include",
       body: JSON.stringify(payload),
@@ -230,9 +270,7 @@ document.getElementById("registerForm").addEventListener("submit", async (e) => 
       data = { error: text || "Unable to parse backend response." };
     }
 
-    // Scenario 1: Same device, same credentials, different browser - store and show registered UI
     if (res.ok && data.already_registered) {
-      // Store registration data for this browser's cookies
       const registrationData = {
         student_id: payload.student_id,
         device_fingerprint: deviceFingerprint,
@@ -249,11 +287,11 @@ document.getElementById("registerForm").addEventListener("submit", async (e) => 
         );
       }
 
-      const registerForm = document.getElementById("registerForm");
+      const registerFormEl = document.getElementById("registerForm");
       const alreadyRegistered = document.getElementById("alreadyRegistered");
-      if (registerForm) {
-        registerForm.style.display = "none";
-        registerForm.hidden = true;
+      if (registerFormEl) {
+        registerFormEl.style.display = "none";
+        registerFormEl.hidden = true;
       }
       if (alreadyRegistered) {
         alreadyRegistered.style.display = "block";
@@ -265,11 +303,9 @@ document.getElementById("registerForm").addEventListener("submit", async (e) => 
       if (headerP) headerP.textContent = 'Your registration is complete. Simply enter a session code to generate a fresh QR pass for attendance.';
       const successTitle = document.querySelector('#alreadyRegistered h3');
       if (successTitle) successTitle.textContent = 'You are already registered';
-      
-      // Hide tab bar completely
+
       document.querySelector('.tab-bar').style.display = 'none';
-      
-      // Hide all tab panes except register-panel
+
       document.querySelectorAll('.tab-pane').forEach(pane => {
         if (pane.id === 'register-panel') {
           pane.classList.add('active');
@@ -277,24 +313,23 @@ document.getElementById("registerForm").addEventListener("submit", async (e) => 
           pane.classList.remove('active');
         }
       });
-      
-      // Pre-populate QR panel with student ID (for when they navigate to QR)
+
       document.getElementById("qr_student_id").value = payload.student_id;
-      
+
       showToast("Welcome back! Your account has been recognized.", "success");
-      registerBtn.innerHTML = orig; registerBtn.classList.remove("btn-loading");
+      registerBtn.innerHTML = registerBtnOrig;
+      registerBtn.classList.remove("btn-loading");
       return;
     }
 
-    // Scenario 2: Student already registered on another device
     if (!res.ok) {
       const errorMsg = data.error || "Registration failed.";
       showToast(errorMsg, "error");
-      registerBtn.innerHTML = orig; registerBtn.classList.remove("btn-loading");
+      registerBtn.innerHTML = registerBtnOrig;
+      registerBtn.classList.remove("btn-loading");
       return;
     }
-    
-    // Store registration data for device recognition
+
     const registrationData = {
       student_id: payload.student_id,
       device_fingerprint: deviceFingerprint,
@@ -308,36 +343,81 @@ document.getElementById("registerForm").addEventListener("submit", async (e) => 
       setStoredPublicKey(data.public_key);
     }
 
-    // Switch to registered state immediately after successful registration
-    // Hide tab bar completely
     document.querySelector('.tab-bar').style.display = 'none';
-    
-    // Update header for registered students
+
     const headerH1 = document.querySelector('.student-header h1');
     const headerP = document.querySelector('.student-header p');
     if (headerH1) headerH1.textContent = 'Welcome back! Generate your attendance QR pass.';
     if (headerP) headerP.textContent = 'Your registration is complete. Simply enter a session code to generate a fresh QR pass for attendance.';
-    
-    // Update success message for new registration
+
     const successTitle = document.querySelector('#alreadyRegistered h3');
     if (successTitle) successTitle.textContent = 'You are successfully registered!';
-    
-    // Hide registration form and show registered state
-    const registerForm = document.getElementById("registerForm");
+
+    const registerFormEl = document.getElementById("registerForm");
     const alreadyRegistered = document.getElementById("alreadyRegistered");
-    if (registerForm) {
-      registerForm.style.display = "none";
-      registerForm.hidden = true;
+    if (registerFormEl) {
+      registerFormEl.style.display = "none";
+      registerFormEl.hidden = true;
     }
     if (alreadyRegistered) {
       alreadyRegistered.style.display = 'block';
       alreadyRegistered.hidden = false;
     }
-    registerBtn.innerHTML = orig; registerBtn.classList.remove("btn-loading");
+    registerBtn.innerHTML = registerBtnOrig;
+    registerBtn.classList.remove("btn-loading");
   } catch {
     showToast(`Cannot connect to backend`, "error");
-    registerBtn.innerHTML = orig; registerBtn.classList.remove("btn-loading");
+    registerBtn.innerHTML = registerBtnOrig;
+    registerBtn.classList.remove("btn-loading");
   }
+}
+
+// Handle submission of the student registration form, including frontend validation.
+document.getElementById("registerForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const orig = registerBtn.innerHTML;
+
+  // Combine name fields and convert to uppercase
+  const firstName = document.getElementById("firstName").value.trim().toUpperCase();
+  const middleInitial = document.getElementById("middleInitial").value.trim().toUpperCase();
+  const lastName = document.getElementById("lastName").value.trim().toUpperCase();
+  const suffix = document.getElementById("suffix").value.trim().toUpperCase();
+
+  // Build full name
+  let fullName = firstName;
+  if (middleInitial) fullName += ` ${middleInitial}`;
+  fullName += ` ${lastName}`;
+  if (suffix) fullName += ` ${suffix}`;
+  fullName = fullName.trim();
+
+  const email = document.getElementById("email").value.trim().toLowerCase();
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!email || !emailRegex.test(email)) {
+    showToast("Please enter a valid email address.", "error");
+    return;
+  }
+
+  const newStudentId = document.getElementById("student_id").value.trim();
+  const section = document.getElementById("section").value;
+  if (!newStudentId) {
+    showToast("Please enter your Student ID.", "error");
+    return;
+  }
+  if (!section) {
+    showToast("Please select your section.", "error");
+    return;
+  }
+
+  const deviceFingerprint = generateDeviceFingerprint();
+  const payload = {
+    student_id: newStudentId,
+    name: fullName,
+    email: email,
+    section: section,
+    device_fingerprint: deviceFingerprint,
+  };
+
+  showRegisterConfirmModal(payload, orig);
 });
 
 // QR Generate - with automatic 15-second refresh
