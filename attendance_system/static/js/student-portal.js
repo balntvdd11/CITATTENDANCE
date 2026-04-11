@@ -601,9 +601,12 @@ document.getElementById("qrForm").addEventListener("submit", async (e) => {
     });
     const data = await res.json();
     
-    // Handle device mismatch - show modal
+    // Handle device mismatch or activation-required response.
     if (res.status === 403 && data.show_modal) {
-      showToast(data.modal_message, "error");
+      showToast(data.modal_message, "warning");
+      renderActivationPrompt(studentId, deviceFingerprint, {
+        message: data.modal_message || "This browser is not registered. Do you want to activate this browser as your device?",
+      });
       generateQrBtn.innerHTML = orig; generateQrBtn.classList.remove("btn-loading");
       return;
     }
@@ -754,6 +757,13 @@ async function refreshQrCode(studentId, sessionCode, deviceFingerprint) {
 
     const data = await res.json();
     if (!res.ok) {
+      if (res.status === 403 && data.show_modal) {
+        showToast(data.modal_message, "warning");
+        renderActivationPrompt(studentId, deviceFingerprint, {
+          message: data.modal_message || "This browser is not registered. Do you want to activate this browser as your device?",
+        });
+        return;
+      }
       handleDeletedStudentResponse(res, data);
       return;
     }

@@ -879,9 +879,34 @@ def generate_qr(request):
         )
 
     if not private_key:
-        return Response({"error": "Private key is required for QR generation"}, status=400)
+        return Response(
+            {
+                "error": "This browser is not registered. Activate this browser to generate a QR pass.",
+                "show_modal": True,
+                "modal_message": "This browser is not registered. Activate this browser to generate a QR pass.",
+            },
+            status=403,
+        )
+
     if not private_key_matches_public_hex(private_key, student.public_key):
-        return Response({"error": "This device is no longer authorized to generate a QR pass."}, status=403)
+        return Response(
+            {
+                "error": "This browser is not currently authorized to generate a QR pass. Activate this browser to continue.",
+                "show_modal": True,
+                "modal_message": "This browser is not currently authorized to generate a QR pass. Activate this browser to continue.",
+            },
+            status=403,
+        )
+
+    if student.device_fingerprint != device_fingerprint:
+        return Response(
+            {
+                "error": "This browser is not the active device. Activate this browser to switch the active device.",
+                "show_modal": True,
+                "modal_message": "This browser is not the active device. Activate this browser to switch the active device.",
+            },
+            status=403,
+        )
 
     session = Session.objects.filter(session_code=session_code, status="ACTIVE").first()
     if not session:
