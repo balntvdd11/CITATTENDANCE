@@ -700,6 +700,15 @@ def student_login(request):
         return Response({"error": "Student account not found."}, status=404)
 
     device_authorized = student.device_fingerprint == device_fingerprint
+    if not device_authorized:
+        return Response(
+            {
+                "error": "This account is registered on another device.",
+                "device_mismatch": True,
+            },
+            status=403,
+        )
+
     response_payload = {
         "message": "Login successful",
         "already_registered": True,
@@ -710,12 +719,8 @@ def student_login(request):
             "section": student.section,
             "email": student.email,
         },
-        "device_authorized": device_authorized,
+        "device_authorized": True,
     }
-
-    if not device_authorized:
-        response_payload["device_mismatch"] = True
-        response_payload["message"] = "Your account is already registered on another device. This device is not authorized to generate a QR pass."
 
     return Response(response_payload, status=200)
 

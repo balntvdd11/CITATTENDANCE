@@ -130,11 +130,11 @@ function renderActivationPrompt(studentId, deviceFingerprint, options = {}) {
   prompt.innerHTML = `
     <div class="otp-modal" style="max-width:520px; transform:scale(0.9); transition:transform 0.3s ease;">
       <div class="otp-modal-header">
-        <h3>${message}</h3>
+        <h3 style="font-size:1.05rem;">${message}</h3>
         <button type="button" class="otp-modal-close" id="closeActivationPromptBtn" aria-label="Close activation prompt">×</button>
       </div>
       <div class="otp-modal-body">
-        <p>Activating this browser creates a fresh signing key pair locally and replaces the current active browser for your account.</p>
+        <p style="font-size:0.95rem;line-height:1.65;">Activating this browser creates a fresh signing key pair locally and replaces the current active browser for your account.</p>
         <button type="button" class="btn btn-primary" id="activateBrowserBtn">Activate this browser</button>
       </div>
     </div>
