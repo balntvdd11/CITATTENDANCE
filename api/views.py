@@ -20,7 +20,7 @@ from rest_framework.response import Response
 from django.views.decorators.csrf import csrf_exempt #add
 
 from .models import Attendance, SECTION_CHOICES, Session, Student
-from .utils import is_valid_public_key_hex, private_key_matches_public_hex, sign_message, verify_signature
+from .utils import generate_keys, private_key_matches_public_hex, sign_message, verify_signature
 
 # API view implementations for student registration, login, QR generation,
 # attendance reporting, and portal dashboard features.
@@ -583,7 +583,6 @@ def register_student(request):
     email = str(request.data.get("email", "")).strip().lower()
     section = request.data.get("section")
     device_fingerprint = str(request.data.get("device_fingerprint", "")).strip()
-    public_key = str(request.data.get("public_key", "")).strip().lower()
 
     if not all([student_id, name, section]):
         return Response({"error": "Student ID, full name, and section are required"}, status=400)
@@ -646,11 +645,9 @@ def register_student(request):
     if len(name_parts) < 2:
         return Response({"error": "Please enter first and last name"}, status=400)
 
-    if not public_key:
-        return Response({"error": "Public key is required for registration"}, status=400)
-    if not is_valid_public_key_hex(public_key):
-        return Response({"error": "Invalid public key"}, status=400)
-
+    # Server generates the key pair; only the public key is persisted. The private key is
+    # returned once in this response for the student browser to store locally.
+    private_key, public_key = generate_keys()
     student = Student.objects.create(
         student_id=student_id,
         name=name,
@@ -668,6 +665,8 @@ def register_student(request):
                 "name": student.name,
                 "section": student.section,
             },
+            "private_key": private_key,
+            "public_key": public_key,
         }
     )
 

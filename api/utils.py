@@ -46,18 +46,6 @@ def private_key_matches_public_hex(private_key_hex, public_key_hex):
         return False
 
 
-def is_valid_public_key_hex(public_key_hex):
-    """Validate client-submitted uncompressed public point hex (128 hex chars = 64 bytes)."""
-    try:
-        raw = public_key_hex.strip().lower()
-        if len(raw) != 128:
-            return False
-        VerifyingKey.from_string(bytes.fromhex(raw), curve=NIST256p)
-        return True
-    except Exception:
-        return False
-
-
 def sign_message(private_key_hex, message):
     """
     Sign a message using the provided private key.

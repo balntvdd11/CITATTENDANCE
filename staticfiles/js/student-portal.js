@@ -50,22 +50,6 @@ function setCookie(name, value, days = 365) {
   document.cookie = `${name}=${value};expires=${d.toUTCString()};path=/;SameSite=Lax`;
 }
 
-function bytesToHex(bytes) {
-  return Array.from(new Uint8Array(bytes), (b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-// Generate P-256 key material in the browser (matches backend ECDSA NIST256p encoding).
-async function generateClientEccKeyPairHex() {
-  const { p256 } = await import(
-    "https://cdn.jsdelivr.net/npm/@noble/curves@1.4.2/esm/p256.js"
-  );
-  const privBytes = p256.utils.randomPrivateKey();
-  const privateKeyHex = bytesToHex(privBytes);
-  const pubUncomp = p256.getPublicKey(privBytes, false);
-  const publicKeyHex = bytesToHex(pubUncomp.slice(1));
-  return { privateKeyHex, publicKeyHex };
-}
-
 function getStoredPrivateKey() {
   try {
     const v = localStorage.getItem("ecc_private_key");
@@ -215,24 +199,12 @@ document.getElementById("registerForm").addEventListener("submit", async (e) => 
   const deviceFingerprint = generateDeviceFingerprint();
   const newStudentId = document.getElementById("student_id").value.trim();
 
-  let keyPair;
-  try {
-    keyPair = await generateClientEccKeyPairHex();
-  } catch (err) {
-    console.warn(err);
-    showToast("Could not create cryptographic keys in this browser.", "error");
-    registerBtn.innerHTML = orig;
-    registerBtn.classList.remove("btn-loading");
-    return;
-  }
-
   const payload = {
     student_id: newStudentId,
     name: fullName,
     email: email,
     section: document.getElementById("section").value,
     device_fingerprint: deviceFingerprint,
-    public_key: keyPair.publicKeyHex,
   };
 
   try {
@@ -329,8 +301,12 @@ document.getElementById("registerForm").addEventListener("submit", async (e) => 
     };
     setCookie("ecc_registration_data", JSON.stringify(registrationData));
 
-    setStoredPrivateKey(keyPair.privateKeyHex);
-    setStoredPublicKey(keyPair.publicKeyHex);
+    if (data.private_key) {
+      setStoredPrivateKey(data.private_key);
+    }
+    if (data.public_key) {
+      setStoredPublicKey(data.public_key);
+    }
 
     // Switch to registered state immediately after successful registration
     // Hide tab bar completely
@@ -759,6 +735,9 @@ function handleLoginSuccess(data, deviceFingerprint) {
 
   if (data.public_key) {
     setStoredPublicKey(data.public_key);
+  }
+  if (data.private_key) {
+    setStoredPrivateKey(data.private_key);
   }
   if (!getStoredPrivateKey()) {
     showToast(
