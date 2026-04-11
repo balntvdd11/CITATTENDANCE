@@ -157,7 +157,10 @@ function renderActivationPrompt(studentId, deviceFingerprint, options = {}) {
       const original = btn.innerHTML;
       btn.innerHTML = '<span class="spinner"></span> Activating…';
       try {
-        await activateBrowserForStudent(studentId, deviceFingerprint);
+        const result = await activateBrowserForStudent(studentId, deviceFingerprint);
+        if (typeof options.onActivated === "function") {
+          options.onActivated(result);
+        }
       } catch (err) {
         showToast(err.message || "Activation failed. Please try again.", "error");
       } finally {
@@ -243,6 +246,45 @@ function generateDeviceFingerprint() {
 
 function getStoredDeviceFingerprint() {
   return generateDeviceFingerprint();
+}
+
+function hasStoredEccKeyPair() {
+  return Boolean(getStoredPrivateKey() && getStoredPublicKey());
+}
+
+function getStoredRegistrationData() {
+  try {
+    const registrationData = getCookie("ecc_registration_data");
+    return registrationData ? JSON.parse(registrationData) : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function maybeShowGlobalBrowserActivationPrompt() {
+  const registrationData = getStoredRegistrationData();
+  if (!registrationData || !registrationData.student_id || !registrationData.device_fingerprint) {
+    return;
+  }
+
+  const currentFingerprint = getStoredDeviceFingerprint();
+  if (registrationData.device_fingerprint !== currentFingerprint) {
+    return;
+  }
+
+  if (hasStoredEccKeyPair()) {
+    return;
+  }
+
+  renderActivationPrompt(registrationData.student_id, currentFingerprint, {
+    message:
+      "Do you want to activate this browser to continue? Activating this browser will transfer your secure key and invalidate your other browser sessions.",
+    onActivated: (data) => {
+      if (data && data.student) {
+        handleLoginSuccess(data, currentFingerprint);
+      }
+    },
+  });
 }
 
 // Clear all stored student session cookies and temporary session storage.
@@ -931,6 +973,22 @@ function showLoginModal() {
         return;
       }
 
+      if (!hasStoredEccKeyPair()) {
+        renderActivationPrompt(studentId, deviceFingerprint, {
+          message:
+            "Are you logging in on this browser? If you continue, this browser will be activated and your other browser sessions will be invalidated.",
+          onActivated: (activationData) => {
+            if (activationData && activationData.student) {
+              handleLoginSuccess(activationData, deviceFingerprint);
+              closeLoginModal();
+            }
+          },
+        });
+        loginBtn.innerHTML = orig;
+        loginBtn.classList.remove("btn-loading");
+        return;
+      }
+
       // Success
       handleLoginSuccess(data, deviceFingerprint);
       closeLoginModal();
@@ -1124,6 +1182,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   await checkRegistrationStatus();
+  await maybeShowGlobalBrowserActivationPrompt();
 
   // Add login prompt below register button
   const registerBtn = document.getElementById("registerBtn");
