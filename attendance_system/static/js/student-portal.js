@@ -50,6 +50,52 @@ function setCookie(name, value, days = 365) {
   document.cookie = `${name}=${value};expires=${d.toUTCString()};path=/;SameSite=Lax`;
 }
 
+function bytesToHex(bytes) {
+  return Array.from(new Uint8Array(bytes), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+// Generate P-256 key material in the browser (matches backend ECDSA NIST256p encoding).
+async function generateClientEccKeyPairHex() {
+  const { p256 } = await import(
+    "https://cdn.jsdelivr.net/npm/@noble/curves@1.4.2/esm/p256.js"
+  );
+  const privBytes = p256.utils.randomPrivateKey();
+  const privateKeyHex = bytesToHex(privBytes);
+  const pubUncomp = p256.getPublicKey(privBytes, false);
+  const publicKeyHex = bytesToHex(pubUncomp.slice(1));
+  return { privateKeyHex, publicKeyHex };
+}
+
+function getStoredPrivateKey() {
+  try {
+    const v = localStorage.getItem("ecc_private_key");
+    if (v) return v;
+  } catch (e) {}
+  return getCookie("ecc_private_key");
+}
+
+function setStoredPrivateKey(value) {
+  try {
+    localStorage.setItem("ecc_private_key", value);
+  } catch (e) {}
+  setCookie("ecc_private_key", value);
+}
+
+function getStoredPublicKey() {
+  try {
+    const v = localStorage.getItem("ecc_public_key");
+    if (v) return v;
+  } catch (e) {}
+  return getCookie("ecc_public_key");
+}
+
+function setStoredPublicKey(value) {
+  try {
+    localStorage.setItem("ecc_public_key", value);
+  } catch (e) {}
+  setCookie("ecc_public_key", value);
+}
+
 // Device fingerprint generation and management
 // Generate a device fingerprint from browser/hardware properties.
 // Used to recognize the same device across browsers.
@@ -81,6 +127,10 @@ function clearStudentSessionData() {
   setCookie("ecc_registration_data", "");
   setCookie("ecc_private_key", "");
   setCookie("ecc_public_key", "");
+  try {
+    localStorage.removeItem("ecc_private_key");
+    localStorage.removeItem("ecc_public_key");
+  } catch (e) {}
   sessionStorage.clear();
 }
 
@@ -164,13 +214,25 @@ document.getElementById("registerForm").addEventListener("submit", async (e) => 
 
   const deviceFingerprint = generateDeviceFingerprint();
   const newStudentId = document.getElementById("student_id").value.trim();
-  
+
+  let keyPair;
+  try {
+    keyPair = await generateClientEccKeyPairHex();
+  } catch (err) {
+    console.warn(err);
+    showToast("Could not create cryptographic keys in this browser.", "error");
+    registerBtn.innerHTML = orig;
+    registerBtn.classList.remove("btn-loading");
+    return;
+  }
+
   const payload = {
     student_id: newStudentId,
     name: fullName,
     email: email,
     section: document.getElementById("section").value,
     device_fingerprint: deviceFingerprint,
+    public_key: keyPair.publicKeyHex,
   };
 
   try {
@@ -204,15 +266,17 @@ document.getElementById("registerForm").addEventListener("submit", async (e) => 
         device_fingerprint: deviceFingerprint,
       };
       setCookie("ecc_registration_data", JSON.stringify(registrationData));
-      
-      // Store keys for this browser
-      if (data.private_key) {
-        setCookie("ecc_private_key", data.private_key);
-      }
+
       if (data.public_key) {
-        setCookie("ecc_public_key", data.public_key);
+        setStoredPublicKey(data.public_key);
       }
-      
+      if (!getStoredPrivateKey()) {
+        showToast(
+          "This browser does not have your attendance signing key. Use the browser where you first registered to generate QR codes, or contact support for a device reset.",
+          "warning"
+        );
+      }
+
       const registerForm = document.getElementById("registerForm");
       const alreadyRegistered = document.getElementById("alreadyRegistered");
       if (registerForm) {
@@ -264,15 +328,10 @@ document.getElementById("registerForm").addEventListener("submit", async (e) => 
       device_fingerprint: deviceFingerprint,
     };
     setCookie("ecc_registration_data", JSON.stringify(registrationData));
-    
-    // Store private key locally for signing operations
-    if (data.private_key) {
-      setCookie("ecc_private_key", data.private_key);
-    }
-    if (data.public_key) {
-      setCookie("ecc_public_key", data.public_key);
-    }
-    
+
+    setStoredPrivateKey(keyPair.privateKeyHex);
+    setStoredPublicKey(keyPair.publicKeyHex);
+
     // Switch to registered state immediately after successful registration
     // Hide tab bar completely
     document.querySelector('.tab-bar').style.display = 'none';
@@ -328,8 +387,8 @@ document.getElementById("qrForm").addEventListener("submit", async (e) => {
   }
   
   const deviceFingerprint = getStoredDeviceFingerprint();
-  const privateKey = getCookie("ecc_private_key");
-  
+  const privateKey = getStoredPrivateKey();
+
   if (!privateKey) {
     showToast("Private key not found. Please register again.", "error");
     generateQrBtn.innerHTML = orig; generateQrBtn.classList.remove("btn-loading");
@@ -490,7 +549,7 @@ async function refreshQrCode(studentId, sessionCode, deviceFingerprint) {
     const csrfToken = getCookie("csrftoken");
     if (csrfToken) headers["X-CSRFToken"] = csrfToken;
 
-    const privateKey = getCookie("ecc_private_key");
+    const privateKey = getStoredPrivateKey();
     if (!privateKey) {
       showToast("Private key not found. Please register again.", "error");
       return;
@@ -697,15 +756,17 @@ function handleLoginSuccess(data, deviceFingerprint) {
     device_fingerprint: deviceFingerprint,
   };
   setCookie("ecc_registration_data", JSON.stringify(registrationData));
-  
-  // Store keys for this browser
-  if (data.private_key) {
-    setCookie("ecc_private_key", data.private_key);
-  }
+
   if (data.public_key) {
-    setCookie("ecc_public_key", data.public_key);
+    setStoredPublicKey(data.public_key);
   }
-  
+  if (!getStoredPrivateKey()) {
+    showToast(
+      "This browser does not have your attendance signing key. Use the browser where you first registered to generate QR codes, or contact support for a device reset.",
+      "warning"
+    );
+  }
+
   const registerForm = document.getElementById("registerForm");
   const alreadyRegistered = document.getElementById("alreadyRegistered");
   if (registerForm) {

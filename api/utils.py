@@ -6,6 +6,7 @@
 from ecdsa import SigningKey, VerifyingKey, NIST256p
 import base64
 import logging
+import secrets
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,34 @@ def generate_keys():
     # Convert keys to hex strings for storage and transmission.
     # This allows easy serialization without binary data issues.
     return sk.to_string().hex(), vk.to_string().hex()
+
+
+def public_key_hex_from_private(private_key_hex):
+    """Derive the P-256 verifying key hex (64-byte X||Y) from a private key hex string."""
+    sk = SigningKey.from_string(bytes.fromhex(private_key_hex), curve=NIST256p)
+    return sk.get_verifying_key().to_string().hex()
+
+
+def private_key_matches_public_hex(private_key_hex, public_key_hex):
+    """True if the private key corresponds to the stored public key (constant-time on hex)."""
+    try:
+        pub = public_key_hex.strip().lower()
+        derived = public_key_hex_from_private(private_key_hex.strip().lower())
+        return secrets.compare_digest(derived, pub)
+    except Exception:
+        return False
+
+
+def is_valid_public_key_hex(public_key_hex):
+    """Validate client-submitted uncompressed public point hex (128 hex chars = 64 bytes)."""
+    try:
+        raw = public_key_hex.strip().lower()
+        if len(raw) != 128:
+            return False
+        VerifyingKey.from_string(bytes.fromhex(raw), curve=NIST256p)
+        return True
+    except Exception:
+        return False
 
 
 def sign_message(private_key_hex, message):

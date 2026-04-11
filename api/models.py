@@ -43,8 +43,6 @@ class Student(models.Model):
     section = models.CharField(max_length=10, choices=SECTION_CHOICES)
     # Public key used to verify QR signatures during attendance validation.
     public_key = models.TextField()
-    # Stored private key for this student when initially registered.
-    private_key = models.TextField(null=True, blank=True)
     # Device fingerprint used to enforce device-based registration/login.
     device_fingerprint = models.CharField(max_length=255, null=True, blank=True)
     # Timestamp when the student record was created.

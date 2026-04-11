@@ -20,7 +20,7 @@ from rest_framework.response import Response
 from django.views.decorators.csrf import csrf_exempt #add
 
 from .models import Attendance, SECTION_CHOICES, Session, Student
-from .utils import generate_keys, sign_message, verify_signature
+from .utils import is_valid_public_key_hex, private_key_matches_public_hex, sign_message, verify_signature
 
 # API view implementations for student registration, login, QR generation,
 # attendance reporting, and portal dashboard features.
@@ -583,6 +583,7 @@ def register_student(request):
     email = str(request.data.get("email", "")).strip().lower()
     section = request.data.get("section")
     device_fingerprint = str(request.data.get("device_fingerprint", "")).strip()
+    public_key = str(request.data.get("public_key", "")).strip().lower()
 
     if not all([student_id, name, section]):
         return Response({"error": "Student ID, full name, and section are required"}, status=400)
@@ -619,6 +620,7 @@ def register_student(request):
                 {
                     "message": "Student already registered",
                     "already_registered": True,
+                    "public_key": existing_student.public_key,
                     "student": {
                         "student_id": existing_student.student_id,
                         "name": existing_student.name,
@@ -644,14 +646,17 @@ def register_student(request):
     if len(name_parts) < 2:
         return Response({"error": "Please enter first and last name"}, status=400)
 
-    private_key, public_key = generate_keys()
+    if not public_key:
+        return Response({"error": "Public key is required for registration"}, status=400)
+    if not is_valid_public_key_hex(public_key):
+        return Response({"error": "Invalid public key"}, status=400)
+
     student = Student.objects.create(
         student_id=student_id,
         name=name,
         email=email if email else None,
         section=section,
         public_key=public_key,
-        private_key=private_key,
         device_fingerprint=device_fingerprint,
     )
 
@@ -663,8 +668,6 @@ def register_student(request):
                 "name": student.name,
                 "section": student.section,
             },
-            "private_key": private_key,
-            "public_key": public_key,
         }
     )
 
@@ -697,19 +700,18 @@ def student_login(request):
     if student.device_fingerprint != device_fingerprint:
         return Response({"error": "This student account is already registered on another device."}, status=409)
 
-    # Successful login returns the registered student payload and stored keys to the frontend.
+    # Successful login returns the registered student payload (signing keys stay on the client).
     return Response(
         {
             "message": "Login successful",
             "already_registered": True,
+            "public_key": student.public_key,
             "student": {
                 "student_id": student.student_id,
                 "name": student.name,
                 "section": student.section,
                 "email": student.email,
             },
-            "private_key": student.private_key,
-            "public_key": student.public_key,
         },
         status=200,
     )
@@ -822,7 +824,6 @@ def session_dashboard(request):
 def generate_qr(request):
     student_id = str(request.data.get("student_id", "")).strip()
     session_code = str(request.data.get("session_code", "")).strip().upper()
-    device_fingerprint = str(request.data.get("device_fingerprint", "")).strip()
     private_key = str(request.data.get("private_key", "")).strip()
 
     if not all([student_id, session_code]):
@@ -839,15 +840,9 @@ def generate_qr(request):
             status=404
         )
 
-    # QR authorization is based on authenticated session or a valid account private key.
-    # It intentionally does not depend on browser fingerprint to support same-device,
-    # cross-browser QR generation for the same account.
-    session_authorized = bool(
-        (getattr(request, "user", None) and request.user.is_authenticated)
-        or request.session.get("temp_authorized_student_id") == student.student_id
-    )
-    key_authorized = bool(private_key and student.private_key and private_key == student.private_key)
-    if not session_authorized and not key_authorized:
+    if not private_key:
+        return Response({"error": "Private key is required for QR generation"}, status=400)
+    if not private_key_matches_public_hex(private_key, student.public_key):
         return Response({"error": "Unauthorized QR generation request"}, status=403)
 
     session = Session.objects.filter(session_code=session_code, status="ACTIVE").first()
@@ -856,9 +851,7 @@ def generate_qr(request):
     if student.section != session.section:
         return Response({"error": "Student section does not match the selected session"}, status=400)
 
-    signing_key = private_key if key_authorized else (student.private_key or "")
-    if not signing_key:
-        return Response({"error": "Private key is required for QR generation"}, status=400)
+    signing_key = private_key
 
     timestamp = timezone.now().isoformat()
     message = f"{student_id}|{student.section}|{session.session_code}|{timestamp}"

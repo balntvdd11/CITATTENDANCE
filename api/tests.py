@@ -29,12 +29,14 @@ class AttendancePortalTests(TestCase):
         )
 
     def test_student_registration_is_one_time_only(self):
+        _, public_key = generate_keys()
         payload = {
             "student_id": "20260001",
             "name": "Juan Dela Cruz",
             "section": "WMD-1A",
             "email": "juan@example.com",
             "device_fingerprint": "test-device-123",
+            "public_key": public_key,
         }
         first_response = self.client.post(reverse("register-student"), payload, format="json")
         second_response = self.client.post(reverse("register-student"), payload, format="json")

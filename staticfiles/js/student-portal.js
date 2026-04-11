@@ -1,6 +1,7 @@
 // Student portal behavior (migrated from inline template)
-// Expects `API_BASE` to be defined on the page (small inline var in the template).
+// Expects `API_BASE` to be defined on the page as a relative or absolute base URL.
 
+// Show a toast notification message in the student portal UI.
 function showToast(msg, type = "info") {
   const c = document.getElementById("toastContainer");
   const t = document.createElement("div");
@@ -16,6 +17,7 @@ function showToast(msg, type = "info") {
   const tid = setTimeout(() => removeToast(t), 5000);
   t._tid = tid;
 }
+// Remove a toast notification and clean up its timer.
 function removeToast(t) {
   if (!t || !t.parentElement) return;
   clearTimeout(t._tid);
@@ -23,7 +25,7 @@ function removeToast(t) {
   setTimeout(() => t.remove(), 280);
 }
 
-// Tabs
+// Tab navigation for the unregistered student portal UI.
 document.querySelectorAll(".tab-btn").forEach(btn => {
   btn.addEventListener("click", () => {
     document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
@@ -33,20 +35,70 @@ document.querySelectorAll(".tab-btn").forEach(btn => {
   });
 });
 
-// Register
+// Register form and cookie helper functions used throughout the portal.
 const registerBtn = document.getElementById("registerBtn");
 function getCookie(name) {
   const v = `; ${document.cookie}`;
   const p = v.split(`; ${name}=`);
   return p.length === 2 ? p.pop().split(";").shift() : "";
 }
+// Set a cookie for storing registration, keys, and UI state.
 function setCookie(name, value, days = 365) {
+  // Create a new expiration date for the cookie and write a same-site cookie.
   const d = new Date();
   d.setTime(d.getTime() + (days * 24 * 60 * 60 * 1000));
   document.cookie = `${name}=${value};expires=${d.toUTCString()};path=/;SameSite=Lax`;
 }
 
+function bytesToHex(bytes) {
+  return Array.from(new Uint8Array(bytes), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+// Generate P-256 key material in the browser (matches backend ECDSA NIST256p encoding).
+async function generateClientEccKeyPairHex() {
+  const { p256 } = await import(
+    "https://cdn.jsdelivr.net/npm/@noble/curves@1.4.2/esm/p256.js"
+  );
+  const privBytes = p256.utils.randomPrivateKey();
+  const privateKeyHex = bytesToHex(privBytes);
+  const pubUncomp = p256.getPublicKey(privBytes, false);
+  const publicKeyHex = bytesToHex(pubUncomp.slice(1));
+  return { privateKeyHex, publicKeyHex };
+}
+
+function getStoredPrivateKey() {
+  try {
+    const v = localStorage.getItem("ecc_private_key");
+    if (v) return v;
+  } catch (e) {}
+  return getCookie("ecc_private_key");
+}
+
+function setStoredPrivateKey(value) {
+  try {
+    localStorage.setItem("ecc_private_key", value);
+  } catch (e) {}
+  setCookie("ecc_private_key", value);
+}
+
+function getStoredPublicKey() {
+  try {
+    const v = localStorage.getItem("ecc_public_key");
+    if (v) return v;
+  } catch (e) {}
+  return getCookie("ecc_public_key");
+}
+
+function setStoredPublicKey(value) {
+  try {
+    localStorage.setItem("ecc_public_key", value);
+  } catch (e) {}
+  setCookie("ecc_public_key", value);
+}
+
 // Device fingerprint generation and management
+// Generate a device fingerprint from browser/hardware properties.
+// Used to recognize the same device across browsers.
 function generateDeviceFingerprint() {
   // Always compute fresh from hardware properties to ensure consistency across browsers
   const fingerprint = [
@@ -70,13 +122,19 @@ function getStoredDeviceFingerprint() {
   return generateDeviceFingerprint();
 }
 
+// Clear all stored student session cookies and temporary session storage.
 function clearStudentSessionData() {
   setCookie("ecc_registration_data", "");
   setCookie("ecc_private_key", "");
   setCookie("ecc_public_key", "");
+  try {
+    localStorage.removeItem("ecc_private_key");
+    localStorage.removeItem("ecc_public_key");
+  } catch (e) {}
   sessionStorage.clear();
 }
 
+// Stop QR refresh and countdown timers when the student session becomes invalid.
 function stopQrRefresh() {
   if (qrRefreshInterval) {
     clearInterval(qrRefreshInterval);
@@ -88,6 +146,8 @@ function stopQrRefresh() {
   }
 }
 
+// Handle backend responses for deleted or invalid student accounts.
+// Clears stored registration state and forces the student back to the register form.
 function handleDeletedStudentResponse(res, data) {
   const errorText = data && data.error ? String(data.error).toLowerCase() : "";
   if (
@@ -106,6 +166,7 @@ function handleDeletedStudentResponse(res, data) {
   return false;
 }
 
+// Verify that the stored student ID still exists in the backend on page load.
 async function verifyStoredStudentOnLoad(studentId) {
   try {
     const res = await fetch(`${API_BASE}/api/check-student/?student_id=${encodeURIComponent(studentId)}`, {
@@ -123,6 +184,7 @@ async function verifyStoredStudentOnLoad(studentId) {
   }
 }
 
+// Handle submission of the student registration form, including frontend validation.
 document.getElementById("registerForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   const orig = registerBtn.innerHTML;
@@ -152,29 +214,25 @@ document.getElementById("registerForm").addEventListener("submit", async (e) => 
 
   const deviceFingerprint = generateDeviceFingerprint();
   const newStudentId = document.getElementById("student_id").value.trim();
-  
-  // Scenario 3: Check if this device already has a registered student
-  const existingRegistrationStr = getCookie("ecc_registration_data");
-  if (existingRegistrationStr) {
-    try {
-      const existingReg = JSON.parse(existingRegistrationStr);
-      if (existingReg.student_id && existingReg.student_id !== newStudentId) {
-        // Device has a registration for a different student ID
-        showToast("This device already has a registered account. Registration is not allowed.", "error");
-        registerBtn.innerHTML = orig; registerBtn.classList.remove("btn-loading");
-        return;
-      }
-    } catch (err) {
-      // Ignore parsing errors
-    }
+
+  let keyPair;
+  try {
+    keyPair = await generateClientEccKeyPairHex();
+  } catch (err) {
+    console.warn(err);
+    showToast("Could not create cryptographic keys in this browser.", "error");
+    registerBtn.innerHTML = orig;
+    registerBtn.classList.remove("btn-loading");
+    return;
   }
-  
+
   const payload = {
     student_id: newStudentId,
     name: fullName,
     email: email,
     section: document.getElementById("section").value,
     device_fingerprint: deviceFingerprint,
+    public_key: keyPair.publicKeyHex,
   };
 
   try {
@@ -191,7 +249,14 @@ document.getElementById("registerForm").addEventListener("submit", async (e) => 
       credentials: "include",
       body: JSON.stringify(payload),
     });
-    const data = await res.json();
+
+    let data = {};
+    try {
+      data = await res.json();
+    } catch (err) {
+      const text = await res.text().catch(() => "Unable to parse backend response.");
+      data = { error: text || "Unable to parse backend response." };
+    }
 
     // Scenario 1: Same device, same credentials, different browser - store and show registered UI
     if (res.ok && data.already_registered) {
@@ -201,15 +266,17 @@ document.getElementById("registerForm").addEventListener("submit", async (e) => 
         device_fingerprint: deviceFingerprint,
       };
       setCookie("ecc_registration_data", JSON.stringify(registrationData));
-      
-      // Store keys for this browser
-      if (data.private_key) {
-        setCookie("ecc_private_key", data.private_key);
-      }
+
       if (data.public_key) {
-        setCookie("ecc_public_key", data.public_key);
+        setStoredPublicKey(data.public_key);
       }
-      
+      if (!getStoredPrivateKey()) {
+        showToast(
+          "This browser does not have your attendance signing key. Use the browser where you first registered to generate QR codes, or contact support for a device reset.",
+          "warning"
+        );
+      }
+
       const registerForm = document.getElementById("registerForm");
       const alreadyRegistered = document.getElementById("alreadyRegistered");
       if (registerForm) {
@@ -261,15 +328,10 @@ document.getElementById("registerForm").addEventListener("submit", async (e) => 
       device_fingerprint: deviceFingerprint,
     };
     setCookie("ecc_registration_data", JSON.stringify(registrationData));
-    
-    // Store private key locally for signing operations
-    if (data.private_key) {
-      setCookie("ecc_private_key", data.private_key);
-    }
-    if (data.public_key) {
-      setCookie("ecc_public_key", data.public_key);
-    }
-    
+
+    setStoredPrivateKey(keyPair.privateKeyHex);
+    setStoredPublicKey(keyPair.publicKeyHex);
+
     // Switch to registered state immediately after successful registration
     // Hide tab bar completely
     document.querySelector('.tab-bar').style.display = 'none';
@@ -325,8 +387,8 @@ document.getElementById("qrForm").addEventListener("submit", async (e) => {
   }
   
   const deviceFingerprint = getStoredDeviceFingerprint();
-  const privateKey = getCookie("ecc_private_key");
-  
+  const privateKey = getStoredPrivateKey();
+
   if (!privateKey) {
     showToast("Private key not found. Please register again.", "error");
     generateQrBtn.innerHTML = orig; generateQrBtn.classList.remove("btn-loading");
@@ -400,18 +462,12 @@ const qrHelpLink = document.getElementById("qrHelpLink");
 if (qrHelpLink) {
   qrHelpLink.addEventListener("click", (e) => {
     e.preventDefault();
-    const studentId = document.getElementById("qr_student_id").value.trim();
-    const sessionCode = document.getElementById("session_code").value.trim().toUpperCase();
-    if (!studentId || !sessionCode) {
-      showToast("Please enter your Student ID and Session Code first.", "error");
-      return;
-    }
-    const deviceFingerprint = getStoredDeviceFingerprint();
-
+    const studentId = document.getElementById("qr_student_id")?.value.trim() || "";
+    showDeviceHelpModal(studentId);
   });
 }
 
-// Display QR code with timestamp and countdown timer
+// Render the generated QR code and countdown UI after backend QR generation.
 function displayQrCode(data) {
   const qrDisplay = document.getElementById("qrDisplay");
   qrDisplay.innerHTML = "";
@@ -461,7 +517,7 @@ function displayQrCode(data) {
   });
 }
 
-// Countdown timer
+// Start the 15-second countdown for the rendered QR pass.
 function startCountdownTimer() {
   let seconds = 15;
   
@@ -486,14 +542,14 @@ function startCountdownTimer() {
   }, 1000);
 }
 
-// Refresh QR code
+// Refresh the QR code automatically every 15 seconds using the stored private key.
 async function refreshQrCode(studentId, sessionCode, deviceFingerprint) {
   try {
     const headers = { "Content-Type": "application/json" };
     const csrfToken = getCookie("csrftoken");
     if (csrfToken) headers["X-CSRFToken"] = csrfToken;
 
-    const privateKey = getCookie("ecc_private_key");
+    const privateKey = getStoredPrivateKey();
     if (!privateKey) {
       showToast("Private key not found. Please register again.", "error");
       return;
@@ -525,6 +581,7 @@ async function refreshQrCode(studentId, sessionCode, deviceFingerprint) {
   }
 }
 
+// Open a help modal with instructions for students who need to register a new device.
 function showDeviceHelpModal(studentId) {
   const modalHTML = `
     <div class="otp-modal-overlay" id="deviceHelpOverlay">
@@ -560,6 +617,7 @@ function showDeviceHelpModal(studentId) {
   document.body.insertAdjacentHTML("beforeend", modalHTML);
 }
 
+// Close the device help modal overlay.
 function closeDeviceHelpModal() {
   const overlay = document.getElementById("deviceHelpOverlay");
   if (overlay) {
@@ -567,6 +625,7 @@ function closeDeviceHelpModal() {
   }
 }
 
+// Show the student login modal for existing registered accounts.
 function showLoginModal() {
   const modalHTML = `
     <div class="otp-modal-overlay" id="loginModalOverlay" style="opacity: 0; transition: opacity 0.3s ease;">
@@ -673,6 +732,7 @@ function showLoginModal() {
   });
 }
 
+// Close the login modal and remove keyboard event listeners.
 function closeLoginModal() {
   const overlay = document.getElementById("loginModalOverlay");
   if (overlay) {
@@ -688,6 +748,7 @@ function handleLoginModalEscape(e) {
   if (e.key === "Escape") closeLoginModal();
 }
 
+// Apply login success state to the UI and store student registration details locally.
 function handleLoginSuccess(data, deviceFingerprint) {
   // Store registration data for this browser's cookies
   const registrationData = {
@@ -695,15 +756,17 @@ function handleLoginSuccess(data, deviceFingerprint) {
     device_fingerprint: deviceFingerprint,
   };
   setCookie("ecc_registration_data", JSON.stringify(registrationData));
-  
-  // Store keys for this browser
-  if (data.private_key) {
-    setCookie("ecc_private_key", data.private_key);
-  }
+
   if (data.public_key) {
-    setCookie("ecc_public_key", data.public_key);
+    setStoredPublicKey(data.public_key);
   }
-  
+  if (!getStoredPrivateKey()) {
+    showToast(
+      "This browser does not have your attendance signing key. Use the browser where you first registered to generate QR codes, or contact support for a device reset.",
+      "warning"
+    );
+  }
+
   const registerForm = document.getElementById("registerForm");
   const alreadyRegistered = document.getElementById("alreadyRegistered");
   if (registerForm) {
@@ -741,7 +804,7 @@ function handleLoginSuccess(data, deviceFingerprint) {
   if (loginPrompt) loginPrompt.style.display = 'none';
 }
 
-// Check registration status on page load
+// Check the saved registration state on page load and update the UI accordingly.
 async function checkRegistrationStatus() {
   const registrationDataStr = getCookie("ecc_registration_data");
   
@@ -818,7 +881,7 @@ async function checkRegistrationStatus() {
   }
 }
 
-// Switch to QR panel
+// Show the QR panel directly when a registered student navigates to it.
 function switchToQrPanel() {
   // For registered students, tabs are hidden, so directly show QR panel
   document.querySelectorAll('.tab-pane').forEach(pane => {
@@ -833,7 +896,7 @@ function switchToQrPanel() {
   window.scrollTo(0, 0);
 }
 
-// Initialize on page load
+// Initialize student portal UI and event handlers when the page loads.
 document.addEventListener("DOMContentLoaded", async () => {
   // Clear temporary authorization on page refresh
   try {
