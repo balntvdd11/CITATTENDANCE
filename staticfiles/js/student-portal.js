@@ -144,6 +144,8 @@ async function activateBrowserForStudent(studentId, deviceFingerprint) {
     throw new Error("Unable to activate browser because student or device fingerprint is missing.");
   }
 
+  const deviceBaseFingerprint = generateBaseDeviceFingerprint();
+
   let privateKey = getStoredPrivateKey();
   let publicKey = getStoredPublicKey();
 
@@ -170,6 +172,7 @@ async function activateBrowserForStudent(studentId, deviceFingerprint) {
         public_key: publicKey,
         private_key: privateKey,
         device_fingerprint: deviceFingerprint,
+        device_base_fingerprint: deviceBaseFingerprint,
       }),
     });
     const data = await res.json();
@@ -268,13 +271,48 @@ function getDeviceFingerprintComponents(options = {}) {
   return components.join('|');
 }
 
+function getBaseDeviceFingerprintComponents(options = {}) {
+  const width = screen.width || 0;
+  const height = screen.height || 0;
+  const minDim = Math.min(width, height);
+  const maxDim = Math.max(width, height);
+  const dims = options.useActualDimensions ? `${width}x${height}` : `${minDim}x${maxDim}`;
+  const devicePixelRatio = Math.round((window.devicePixelRatio || 1) * 100) / 100;
+  const language = (navigator.language || (navigator.languages && navigator.languages[0]) || "").toLowerCase();
+
+  const components = [
+    normalizePlatform(navigator.platform),
+    dims,
+    devicePixelRatio,
+    navigator.hardwareConcurrency || "",
+    navigator.maxTouchPoints || "",
+    language,
+    new Date().getTimezoneOffset(),
+  ];
+
+  if (options.includeOrientation && screen.orientation && screen.orientation.type) {
+    components.push(screen.orientation.type);
+  }
+
+  return components.join('|');
+}
+
 function computeDeviceFingerprint(options = {}) {
   const fingerprint = getDeviceFingerprintComponents(options);
   return btoa(fingerprint).replace(/[^a-zA-Z0-9]/g, '').substr(0, 32);
 }
 
+function computeBaseDeviceFingerprint(options = {}) {
+  const fingerprint = getBaseDeviceFingerprintComponents(options);
+  return btoa(fingerprint).replace(/[^a-zA-Z0-9]/g, '').substr(0, 32);
+}
+
 function generateDeviceFingerprint() {
   return computeDeviceFingerprint({ includeOrientation: false });
+}
+
+function generateBaseDeviceFingerprint() {
+  return computeBaseDeviceFingerprint({ includeOrientation: false });
 }
 
 function generateDeviceFingerprintCandidates() {
@@ -638,12 +676,14 @@ document.getElementById("registerForm").addEventListener("submit", (e) => {
   }
 
   const deviceFingerprint = generateDeviceFingerprint();
+  const deviceBaseFingerprint = generateBaseDeviceFingerprint();
   const payload = {
     student_id: newStudentId,
     name: fullName,
     email: email,
     section: section,
     device_fingerprint: deviceFingerprint,
+    device_base_fingerprint: deviceBaseFingerprint,
   };
 
   showRegisterConfirmModal(payload, orig);
@@ -1039,6 +1079,7 @@ function showLoginModal() {
     const studentId = document.getElementById("login_student_id").value.trim();
     const section = document.getElementById("login_section").value;
     const deviceFingerprint = generateDeviceFingerprint();
+    const deviceBaseFingerprint = generateBaseDeviceFingerprint();
 
     if (!studentId || !section) {
       showToast("Please enter both Student ID and Section.", "error");
@@ -1050,6 +1091,7 @@ function showLoginModal() {
       student_id: studentId,
       section: section,
       device_fingerprint: deviceFingerprint,
+      device_base_fingerprint: deviceBaseFingerprint,
     };
 
     try {

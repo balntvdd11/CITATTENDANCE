@@ -45,6 +45,9 @@ class Student(models.Model):
     public_key = models.TextField()
     # Device fingerprint used to enforce device-based registration/login.
     device_fingerprint = models.CharField(max_length=255, null=True, blank=True)
+    # Base device fingerprint (hardware traits only, no device_id) - locked at first registration.
+    # Used to enforce that all browsers must be from the same physical device.
+    device_base_fingerprint = models.CharField(max_length=255, null=True, blank=True)
     # Timestamp when the student record was created.
     registered_at = models.DateTimeField(default=timezone.now, editable=False)
 

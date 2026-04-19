@@ -583,12 +583,16 @@ def register_student(request):
     email = str(request.data.get("email", "")).strip().lower()
     section = request.data.get("section")
     device_fingerprint = str(request.data.get("device_fingerprint", "")).strip()
+    device_base_fingerprint = str(request.data.get("device_base_fingerprint", "")).strip()
 
     if not all([student_id, name, section]):
         return Response({"error": "Student ID, full name, and section are required"}, status=400)
 
     if not device_fingerprint:
         return Response({"error": "Device fingerprint is required for device binding security"}, status=400)
+
+    if not device_base_fingerprint:
+        return Response({"error": "Device base fingerprint is required"}, status=400)
 
     allowed_sections = [item[0] for item in SECTION_CHOICES]
     if section not in allowed_sections:
@@ -619,6 +623,10 @@ def register_student(request):
 
         if existing_student.device_fingerprint != device_fingerprint:
             return Response({"error": "Student already registered on another device."}, status=409)
+
+        # Verify base fingerprint matches locked device
+        if existing_student.device_base_fingerprint and existing_student.device_base_fingerprint != device_base_fingerprint:
+            return Response({"error": "This student is registered on a different physical device."}, status=409)
 
         if same_name and same_section and same_email:
             return Response(
@@ -661,6 +669,7 @@ def register_student(request):
         section=section,
         public_key=public_key,
         device_fingerprint=device_fingerprint,
+        device_base_fingerprint=device_base_fingerprint,
     )
 
     return Response(
@@ -681,6 +690,7 @@ def register_student(request):
 # API endpoint used by the student portal login modal.
 # Verifies student credentials and device fingerprint before granting access.
 # Accepts exact match or candidate fingerprints (for same phone, different browser support).
+# Validates base fingerprint to ensure same physical device.
 @api_view(["POST"])
 @csrf_exempt
 @permission_classes([AllowAny])
@@ -688,6 +698,7 @@ def student_login(request):
     student_id = str(request.data.get("student_id", "")).strip()
     section = request.data.get("section")
     device_fingerprint = str(request.data.get("device_fingerprint", "")).strip()
+    device_base_fingerprint = str(request.data.get("device_base_fingerprint", "")).strip()
     candidate_fingerprints = request.data.get("candidate_fingerprints", [])
     
     # Ensure candidate_fingerprints is a list and add the primary fingerprint to it
@@ -702,6 +713,9 @@ def student_login(request):
     if not device_fingerprint:
         return Response({"error": "Device fingerprint is required"}, status=400)
 
+    if not device_base_fingerprint:
+        return Response({"error": "Device base fingerprint is required"}, status=400)
+
     try:
         student = Student.objects.get(student_id=student_id)
     except Student.DoesNotExist:
@@ -709,6 +723,16 @@ def student_login(request):
 
     if student.section != section:
         return Response({"error": "Student account not found."}, status=404)
+
+    # Verify base fingerprint matches locked device (prevents different iPhone 13s from logging in)
+    if student.device_base_fingerprint and student.device_base_fingerprint != device_base_fingerprint:
+        return Response(
+            {
+                "error": "This account is registered on a different physical device.",
+                "device_mismatch": True,
+            },
+            status=403,
+        )
 
     # Accept if any candidate fingerprint matches the stored device fingerprint
     device_authorized = student.device_fingerprint in candidate_fingerprints
@@ -739,6 +763,7 @@ def student_login(request):
 
 # API endpoint for activating the current browser/device.
 # Generates a new public key for the student and replaces the existing public key.
+# Also validates base fingerprint on activation to prevent different physical devices.
 @api_view(["POST"])
 @csrf_exempt
 @permission_classes([AllowAny])
@@ -747,6 +772,7 @@ def activate_browser(request):
     public_key = str(request.data.get("public_key", "")).strip()
     private_key = str(request.data.get("private_key", "")).strip()
     device_fingerprint = str(request.data.get("device_fingerprint", "")).strip()
+    device_base_fingerprint = str(request.data.get("device_base_fingerprint", "")).strip()
 
     if not all([student_id, public_key, private_key, device_fingerprint]):
         return Response(
@@ -754,10 +780,23 @@ def activate_browser(request):
             status=400,
         )
 
+    if not device_base_fingerprint:
+        return Response(
+            {"error": "Device base fingerprint is required."},
+            status=400,
+        )
+
     try:
         student = Student.objects.get(student_id=student_id)
     except Student.DoesNotExist:
         return Response({"error": "Student account not found."}, status=404)
+
+    # Verify base fingerprint matches locked device (prevents different iPhone 13s from activating)
+    if student.device_base_fingerprint and student.device_base_fingerprint != device_base_fingerprint:
+        return Response(
+            {"error": "This account is registered on a different physical device."},
+            status=403,
+        )
 
     if not is_valid_public_key_hex(public_key):
         return Response({"error": "Invalid public key format."}, status=400)
@@ -770,7 +809,10 @@ def activate_browser(request):
 
     student.public_key = public_key
     student.device_fingerprint = device_fingerprint
-    student.save(update_fields=["public_key", "device_fingerprint"])
+    # Lock base fingerprint on first activation if not already set
+    if not student.device_base_fingerprint:
+        student.device_base_fingerprint = device_base_fingerprint
+    student.save(update_fields=["public_key", "device_fingerprint", "device_base_fingerprint"])
 
     return Response({
         "message": "This browser is now your active device.",
