@@ -597,6 +597,9 @@ def register_student(request):
     if not re.match(r"^\d{1,10}$", student_id):
         return Response({"error": "Student ID must be numeric and up to 10 digits"}, status=400)
 
+    if email and not re.match(r"^[^@\s]+@ua\.edu\.ph$", email):
+        return Response({"error": "Email must be a valid UA email address ending with @ua.edu.ph."}, status=400)
+
     def normalize_name(n):
         # Normalize names for consistent comparison across registration/login.
         return re.sub(r'[^\w\s]', '', " ".join(n.upper().split()))

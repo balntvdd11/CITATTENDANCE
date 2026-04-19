@@ -192,8 +192,45 @@ async function activateBrowserForStudent(studentId, deviceFingerprint) {
 }
 
 // Device fingerprint generation and management
-// Generate a device fingerprint from stable hardware/device traits only.
-// This ensures same physical devices are grouped together across browsers.
+// Generate a device fingerprint from stable hardware/device traits
+// plus a browser-local device identifier.
+// This ensures two separate devices with the same model are treated as different devices.
+function generateStableDeviceId() {
+  try {
+    const bytes = new Uint8Array(16);
+    window.crypto.getRandomValues(bytes);
+    return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+  } catch (e) {
+    return Date.now().toString(36) + Math.random().toString(36).slice(2, 11);
+  }
+}
+
+function setStoredDeviceId(value) {
+  try {
+    localStorage.setItem("ecc_device_id", value);
+  } catch (e) {}
+  setCookie("ecc_device_id", value);
+}
+
+function getStoredDeviceId() {
+  try {
+    const stored = localStorage.getItem("ecc_device_id");
+    if (stored) return stored;
+  } catch (e) {}
+
+  const cookieValue = getCookie("ecc_device_id");
+  if (cookieValue) {
+    try {
+      localStorage.setItem("ecc_device_id", cookieValue);
+    } catch (e) {}
+    return cookieValue;
+  }
+
+  const deviceId = generateStableDeviceId();
+  setStoredDeviceId(deviceId);
+  return deviceId;
+}
+
 function normalizePlatform(platform) {
   const value = (platform || "").toLowerCase();
   if (value.includes("iphone") || value.includes("ipad") || value.includes("ipod")) return "ios";
@@ -220,6 +257,7 @@ function getDeviceFingerprintComponents(options = {}) {
     navigator.hardwareConcurrency || "",
     navigator.maxTouchPoints || "",
     language,
+    getStoredDeviceId(),
     new Date().getTimezoneOffset(),
   ];
 
@@ -582,9 +620,9 @@ document.getElementById("registerForm").addEventListener("submit", (e) => {
   fullName = fullName.trim();
 
   const email = document.getElementById("email").value.trim().toLowerCase();
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (!email || !emailRegex.test(email)) {
-    showToast("Please enter a valid email address.", "error");
+  const emailRegex = /^[^\s@]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+  if (!email || !emailRegex.test(email) || !email.endsWith("@ua.edu.ph")) {
+    showToast("Please enter a valid UA email address ending with @ua.edu.ph.", "error");
     return;
   }
 

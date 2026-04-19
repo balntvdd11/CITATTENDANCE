@@ -654,9 +654,9 @@ document.getElementById("registerForm").addEventListener("submit", (e) => {
   fullName = fullName.trim();
 
   const email = document.getElementById("email").value.trim().toLowerCase();
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (!email || !emailRegex.test(email)) {
-    showToast("Please enter a valid email address.", "error");
+  const emailRegex = /^[^\s@]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+  if (!email || !emailRegex.test(email) || !email.endsWith("@ua.edu.ph")) {
+    showToast("Please enter a valid UA email address ending with @ua.edu.ph.", "error");
     return;
   }
 
