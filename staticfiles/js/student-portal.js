@@ -80,6 +80,75 @@ function setStoredPublicKey(value) {
   setCookie("ecc_public_key", value);
 }
 
+function arrayBufferToHex(buffer) {
+  return [...new Uint8Array(buffer)].map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+function base64UrlToUint8Array(base64url) {
+  const base64 = base64url.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = base64.padEnd(base64.length + (4 - (base64.length % 4)) % 4, "=");
+  const raw = window.atob(padded);
+  const bytes = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i += 1) {
+    bytes[i] = raw.charCodeAt(i);
+  }
+  return bytes;
+}
+
+function generateStableDeviceId() {
+  try {
+    const bytes = new Uint8Array(16);
+    window.crypto.getRandomValues(bytes);
+    return [...bytes].map(b => b.toString(16).padStart(2, "0")).join("");
+  } catch (e) {
+    return Date.now().toString(36) + Math.random().toString(36).slice(2, 11);
+  }
+}
+
+function setStoredDeviceId(value) {
+  try {
+    localStorage.setItem("ecc_device_id", value);
+  } catch (e) {}
+  setCookie("ecc_device_id", value);
+}
+
+function getStoredDeviceId() {
+  try {
+    const stored = localStorage.getItem("ecc_device_id");
+    if (stored) return stored;
+  } catch (e) {}
+
+  const cookieValue = getCookie("ecc_device_id");
+  if (cookieValue) {
+    try {
+      localStorage.setItem("ecc_device_id", cookieValue);
+    } catch (e) {}
+    return cookieValue;
+  }
+
+  const deviceId = generateStableDeviceId();
+  setStoredDeviceId(deviceId);
+  return deviceId;
+}
+
+async function generateEccKeyPair() {
+  const keyPair = await window.crypto.subtle.generateKey(
+    { name: "ECDSA", namedCurve: "P-256" },
+    true,
+    ["sign", "verify"]
+  );
+  const jwkPrivate = await window.crypto.subtle.exportKey("jwk", keyPair.privateKey);
+
+  const dBytes = base64UrlToUint8Array(jwkPrivate.d);
+  const xBytes = base64UrlToUint8Array(jwkPrivate.x);
+  const yBytes = base64UrlToUint8Array(jwkPrivate.y);
+
+  return {
+    privateKey: arrayBufferToHex(dBytes),
+    publicKey: arrayBufferToHex(xBytes) + arrayBufferToHex(yBytes),
+  };
+}
+
 function clearActivationPrompt() {
   const section = document.getElementById("browserActivationPrompt");
   if (section) section.remove();
@@ -184,6 +253,7 @@ async function activateBrowserForStudent(studentId, deviceFingerprint) {
     showToast("This browser is now your active device.", "success");
     return data;
   } catch (err) {
+    // If activation fails, remove stored keys that were created locally.
     try {
       localStorage.removeItem("ecc_private_key");
       localStorage.removeItem("ecc_public_key");
@@ -198,42 +268,6 @@ async function activateBrowserForStudent(studentId, deviceFingerprint) {
 // Generate a device fingerprint from stable hardware/device traits
 // plus a browser-local device identifier.
 // This ensures two separate devices with the same model are treated as different devices.
-function generateStableDeviceId() {
-  try {
-    const bytes = new Uint8Array(16);
-    window.crypto.getRandomValues(bytes);
-    return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
-  } catch (e) {
-    return Date.now().toString(36) + Math.random().toString(36).slice(2, 11);
-  }
-}
-
-function setStoredDeviceId(value) {
-  try {
-    localStorage.setItem("ecc_device_id", value);
-  } catch (e) {}
-  setCookie("ecc_device_id", value);
-}
-
-function getStoredDeviceId() {
-  try {
-    const stored = localStorage.getItem("ecc_device_id");
-    if (stored) return stored;
-  } catch (e) {}
-
-  const cookieValue = getCookie("ecc_device_id");
-  if (cookieValue) {
-    try {
-      localStorage.setItem("ecc_device_id", cookieValue);
-    } catch (e) {}
-    return cookieValue;
-  }
-
-  const deviceId = generateStableDeviceId();
-  setStoredDeviceId(deviceId);
-  return deviceId;
-}
-
 function normalizePlatform(platform) {
   const value = (platform || "").toLowerCase();
   if (value.includes("iphone") || value.includes("ipad") || value.includes("ipod")) return "ios";
@@ -283,6 +317,7 @@ function getBaseDeviceFingerprintComponents(options = {}) {
     normalizePlatform(navigator.platform),
     dims,
     devicePixelRatio,
+    getStoredDeviceId(), // Unique device identifier to ensure different physical devices are always treated as different
   ];
 
   if (options.includeOrientation && screen.orientation && screen.orientation.type) {
@@ -1179,12 +1214,9 @@ function handleLoginSuccess(data, deviceFingerprint) {
   if (data.private_key) {
     setStoredPrivateKey(data.private_key);
   }
-  if (!getStoredPrivateKey()) {
-    showToast(
-      "This browser does not have your attendance signing key. Use the browser where you first registered to generate QR codes, or contact support for a device reset.",
-      "warning"
-    );
-  }
+
+  const studentId = data.student.student_id;
+  clearActivationPrompt();
 
   const registerForm = document.getElementById("registerForm");
   const alreadyRegistered = document.getElementById("alreadyRegistered");
