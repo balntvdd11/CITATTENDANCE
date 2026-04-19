@@ -278,14 +278,11 @@ function getBaseDeviceFingerprintComponents(options = {}) {
   const maxDim = Math.max(width, height);
   const dims = options.useActualDimensions ? `${width}x${height}` : `${minDim}x${maxDim}`;
   const devicePixelRatio = Math.round((window.devicePixelRatio || 1) * 100) / 100;
-  const language = (navigator.language || (navigator.languages && navigator.languages[0]) || "").toLowerCase();
 
   const components = [
     normalizePlatform(navigator.platform),
     dims,
     devicePixelRatio,
-    language,
-    new Date().getTimezoneOffset(),
   ];
 
   if (options.includeOrientation && screen.orientation && screen.orientation.type) {
