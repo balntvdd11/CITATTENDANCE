@@ -318,8 +318,6 @@ function getBaseDeviceFingerprintComponents(options = {}) {
     normalizePlatform(navigator.platform),
     dims,
     devicePixelRatio,
-    navigator.hardwareConcurrency || "",
-    navigator.maxTouchPoints || "",
     language,
     new Date().getTimezoneOffset(),
   ];
