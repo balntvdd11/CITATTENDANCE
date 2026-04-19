@@ -317,7 +317,8 @@ function getBaseDeviceFingerprintComponents(options = {}) {
     normalizePlatform(navigator.platform),
     dims,
     devicePixelRatio,
-    getStoredDeviceId(), // Unique device identifier to ensure different physical devices are always treated as different
+    navigator.hardwareConcurrency || "", // CPU cores - hardware specific
+    navigator.maxTouchPoints || "", // Touch capability - hardware specific
   ];
 
   if (options.includeOrientation && screen.orientation && screen.orientation.type) {
