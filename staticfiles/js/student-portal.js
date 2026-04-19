@@ -749,7 +749,65 @@ function displayQrCode(data) {
       </div>
     `;
     wrap.appendChild(timerContainer);
-    wrap.appendChild(canvas);
+
+    const qrFrame = document.createElement("div");
+    qrFrame.style.cssText = "position: relative; display: inline-block;";
+    qrFrame.appendChild(canvas);
+    canvas.style.display = "block";
+
+    const ctx = canvas.getContext("2d");
+    const width = canvas.width;
+    const height = canvas.height;
+    const imageData = ctx.getImageData(0, 0, width, height);
+    const pixels = imageData.data;
+    const gradientStops = [
+      { offset: 0, color: [8, 16, 34] },
+      { offset: 0.35, color: [18, 42, 102] },
+      { offset: 0.65, color: [36, 82, 168] },
+      { offset: 1, color: [96, 131, 223] },
+    ];
+
+    const getGradientColor = (t) => {
+      for (let i = 0; i < gradientStops.length - 1; i += 1) {
+        const start = gradientStops[i];
+        const end = gradientStops[i + 1];
+        if (t >= start.offset && t <= end.offset) {
+          const progress = (t - start.offset) / (end.offset - start.offset);
+          return [
+            Math.round(start.color[0] + (end.color[0] - start.color[0]) * progress),
+            Math.round(start.color[1] + (end.color[1] - start.color[1]) * progress),
+            Math.round(start.color[2] + (end.color[2] - start.color[2]) * progress),
+          ];
+        }
+      }
+      return gradientStops[gradientStops.length - 1].color;
+    };
+
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const idx = (y * width + x) * 4;
+        if (pixels[idx] < 50 && pixels[idx + 1] < 50 && pixels[idx + 2] < 50 && pixels[idx + 3] > 0) {
+          const t = (x + y) / (width + height - 2);
+          const [r, g, b] = getGradientColor(t);
+          pixels[idx] = r;
+          pixels[idx + 1] = g;
+          pixels[idx + 2] = b;
+        }
+      }
+    }
+    ctx.putImageData(imageData, 0, 0);
+
+    const logoOverlay = document.createElement("div");
+    logoOverlay.style.cssText = "position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 62px; height: 62px; border-radius: 18px; background: rgba(255,255,255,0.96); display: grid; place-items: center; box-shadow: 0 6px 18px rgba(0,0,0,0.08); overflow: hidden; border: 1px solid rgba(15,23,42,0.08);";
+
+    const logoImage = document.createElement("img");
+    logoImage.src = "/static/CITLOGO.png";
+    logoImage.alt = "CIT Logo";
+    logoImage.style.cssText = "width: 100%; height: 100%; object-fit: cover; transform: translateY(-6%);";
+
+    logoOverlay.appendChild(logoImage);
+    qrFrame.appendChild(logoOverlay);
+    wrap.appendChild(qrFrame);
 
     const dl = document.createElement("a");
     dl.className = "btn btn-secondary btn-sm";

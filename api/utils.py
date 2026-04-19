@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 def generate_keys():
     """
-    Generate a new ECDSA key pair using NIST256p curve.
+    Generate a new ECC key pair using NIST256p curve.
     This function creates a private key for signing and a corresponding public key for verification.
     Returns the private key and public key as hex strings.
     """
