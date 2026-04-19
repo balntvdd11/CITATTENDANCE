@@ -306,19 +306,11 @@ function getDeviceFingerprintComponents(options = {}) {
 }
 
 function getBaseDeviceFingerprintComponents(options = {}) {
-  const width = screen.width || 0;
-  const height = screen.height || 0;
-  const minDim = Math.min(width, height);
-  const maxDim = Math.max(width, height);
-  const dims = options.useActualDimensions ? `${width}x${height}` : `${minDim}x${maxDim}`;
   const devicePixelRatio = Math.round((window.devicePixelRatio || 1) * 100) / 100;
 
   const components = [
     normalizePlatform(navigator.platform),
-    dims,
     devicePixelRatio,
-    navigator.hardwareConcurrency || "", // CPU cores - hardware specific
-    navigator.maxTouchPoints || "", // Touch capability - hardware specific
   ];
 
   if (options.includeOrientation && screen.orientation && screen.orientation.type) {
