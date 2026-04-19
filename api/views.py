@@ -680,6 +680,7 @@ def register_student(request):
 
 # API endpoint used by the student portal login modal.
 # Verifies student credentials and device fingerprint before granting access.
+# Accepts exact match or candidate fingerprints (for same phone, different browser support).
 @api_view(["POST"])
 @csrf_exempt
 @permission_classes([AllowAny])
@@ -687,6 +688,13 @@ def student_login(request):
     student_id = str(request.data.get("student_id", "")).strip()
     section = request.data.get("section")
     device_fingerprint = str(request.data.get("device_fingerprint", "")).strip()
+    candidate_fingerprints = request.data.get("candidate_fingerprints", [])
+    
+    # Ensure candidate_fingerprints is a list and add the primary fingerprint to it
+    if not isinstance(candidate_fingerprints, list):
+        candidate_fingerprints = []
+    if device_fingerprint and device_fingerprint not in candidate_fingerprints:
+        candidate_fingerprints = [device_fingerprint] + candidate_fingerprints
 
     if not all([student_id, section]):
         return Response({"error": "Student ID and section are required"}, status=400)
@@ -702,7 +710,8 @@ def student_login(request):
     if student.section != section:
         return Response({"error": "Student account not found."}, status=404)
 
-    device_authorized = student.device_fingerprint == device_fingerprint
+    # Accept if any candidate fingerprint matches the stored device fingerprint
+    device_authorized = student.device_fingerprint in candidate_fingerprints
     if not device_authorized:
         return Response(
             {

@@ -1061,36 +1061,17 @@ function showLoginModal() {
       if (csrfToken) headers["X-CSRFToken"] = csrfToken;
 
       const candidateFingerprints = generateDeviceFingerprintCandidates();
-      let loginResponse = null;
-      let loginData = null;
-      let loginRes = null;
+      payload.device_fingerprint = deviceFingerprint;
+      payload.candidate_fingerprints = candidateFingerprints;
 
-      const attemptLogin = async (fingerprint) => {
-        payload.device_fingerprint = fingerprint;
-        const res = await fetch(`${API_BASE}/api/student-login/`, {
-          method: "POST",
-          headers: headers,
-          credentials: "include",
-          body: JSON.stringify(payload),
-        });
-        const data = await res.json();
-        return { res, data };
-      };
-
-      loginResponse = await attemptLogin(deviceFingerprint);
-      loginRes = loginResponse.res;
-      loginData = loginResponse.data;
-
-      if (!loginRes.ok && loginRes.status === 403 && loginData.device_mismatch) {
-        for (const candidate of candidateFingerprints) {
-          if (candidate === deviceFingerprint) continue;
-          loginResponse = await attemptLogin(candidate);
-          loginRes = loginResponse.res;
-          loginData = loginResponse.data;
-          if (loginRes.ok) break;
-          if (loginRes.status !== 403 || !loginData.device_mismatch) break;
-        }
-      }
+      const res = await fetch(`${API_BASE}/api/student-login/`, {
+        method: "POST",
+        headers: headers,
+        credentials: "include",
+        body: JSON.stringify(payload),
+      });
+      const loginData = await res.json();
+      const loginRes = res;
 
       if (!loginRes.ok) {
         if (handleDeletedStudentResponse(loginRes, loginData)) {
