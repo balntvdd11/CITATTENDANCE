@@ -97,6 +97,9 @@ function base64UrlToUint8Array(base64url) {
 
 function generateStableDeviceId() {
   try {
+    if (typeof window.crypto.randomUUID === "function") {
+      return window.crypto.randomUUID();
+    }
     const bytes = new Uint8Array(16);
     window.crypto.getRandomValues(bytes);
     return [...bytes].map(b => b.toString(16).padStart(2, "0")).join("");
@@ -240,6 +243,7 @@ async function activateBrowserForStudent(studentId, deviceFingerprint) {
         student_id: studentId,
         public_key: publicKey,
         private_key: privateKey,
+        device_id: getStoredDeviceId(),
         device_fingerprint: deviceFingerprint,
         device_base_fingerprint: deviceBaseFingerprint,
       }),
@@ -705,6 +709,7 @@ document.getElementById("registerForm").addEventListener("submit", (e) => {
     name: fullName,
     email: email,
     section: section,
+    device_id: getStoredDeviceId(),
     device_fingerprint: deviceFingerprint,
     device_base_fingerprint: deviceBaseFingerprint,
   };
@@ -1113,6 +1118,7 @@ function showLoginModal() {
     const payload = {
       student_id: studentId,
       section: section,
+      device_id: getStoredDeviceId(),
       device_fingerprint: deviceFingerprint,
       device_base_fingerprint: deviceBaseFingerprint,
     };
@@ -1194,9 +1200,11 @@ function handleLoginModalEscape(e) {
 
 // Apply login success state to the UI and store student registration details locally.
 function handleLoginSuccess(data, deviceFingerprint) {
+  const deviceId = getStoredDeviceId();
   // Store registration data for this browser's cookies
   const registrationData = {
     student_id: data.student.student_id,
+    device_id: deviceId,
     device_fingerprint: deviceFingerprint,
   };
   setCookie("ecc_registration_data", JSON.stringify(registrationData));

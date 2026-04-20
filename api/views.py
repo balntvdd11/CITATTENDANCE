@@ -68,6 +68,61 @@ def serialize_session(session):
     }
 
 
+DEVICE_ID_PREFIX = "device_id:"
+FINGERPRINT_PREFIX = "fingerprint:"
+DEVICE_INFO_SEPARATOR = "|"
+
+
+def encode_device_binding(device_id, device_fingerprint):
+    if not device_id:
+        return device_fingerprint or ""
+    return f"{DEVICE_ID_PREFIX}{device_id}{DEVICE_INFO_SEPARATOR}{FINGERPRINT_PREFIX}{device_fingerprint}"
+
+
+def decode_device_binding(stored_value):
+    if not stored_value:
+        return {"device_id": None, "device_fingerprint": ""}
+    if DEVICE_ID_PREFIX in stored_value and FINGERPRINT_PREFIX in stored_value:
+        parts = dict(
+            part.split(":", 1)
+            for part in stored_value.split(DEVICE_INFO_SEPARATOR)
+            if ":" in part
+        )
+        return {
+            "device_id": parts.get("device_id"),
+            "device_fingerprint": parts.get("fingerprint", ""),
+        }
+    return {"device_id": None, "device_fingerprint": stored_value}
+
+
+def get_request_device_info(request):
+    return (
+        str(request.data.get("device_id", "") or "").strip(),
+        str(request.data.get("device_fingerprint", "") or "").strip(),
+    )
+
+
+def get_student_device_info(student):
+    return decode_device_binding(student.device_fingerprint or "")
+
+
+def find_student_by_device_id(device_id):
+    if not device_id:
+        return None
+    return Student.objects.filter(device_fingerprint__startswith=f"{DEVICE_ID_PREFIX}{device_id}{DEVICE_INFO_SEPARATOR}").first()
+
+
+def find_student_by_fingerprint(device_fingerprint, allow_encoded=False):
+    if not device_fingerprint:
+        return None
+    if allow_encoded:
+        return Student.objects.filter(
+            Q(device_fingerprint=device_fingerprint)
+            | Q(device_fingerprint__contains=f"{DEVICE_INFO_SEPARATOR}{FINGERPRINT_PREFIX}{device_fingerprint}")
+        ).first()
+    return Student.objects.filter(device_fingerprint=device_fingerprint).first()
+
+
 # Filter session queryset by request GET params for section/date.
 def get_filtered_sessions(request):
     sessions = Session.objects.all()
@@ -357,12 +412,13 @@ def student_attendance(request):
             "status": record.status if record else 'ABSENT',
         })
 
+    student_info = get_student_device_info(student)
     return Response({
         "student": {
             "student_id": student.student_id,
             "name": student.name,
             "section": student.section,
-            "device_fingerprint": student.device_fingerprint,
+            "device_fingerprint": student_info["device_fingerprint"],
             "registered_at": student.registered_at.isoformat(),
         },
         "stats": {
@@ -582,7 +638,7 @@ def register_student(request):
     name = request.data.get("name", "").strip()
     email = str(request.data.get("email", "")).strip().lower()
     section = request.data.get("section")
-    device_fingerprint = str(request.data.get("device_fingerprint", "")).strip()
+    device_id, device_fingerprint = get_request_device_info(request)
     device_base_fingerprint = str(request.data.get("device_base_fingerprint", "")).strip()
 
     if not all([student_id, name, section]):
@@ -608,8 +664,14 @@ def register_student(request):
         # Normalize names for consistent comparison across registration/login.
         return re.sub(r'[^\w\s]', '', " ".join(n.upper().split()))
 
-    # Check if device fingerprint is already registered to a different student
-    existing_device_student = Student.objects.filter(device_fingerprint=device_fingerprint).first()
+    # Check if device fingerprint / device id is already registered to a different student.
+    existing_device_student = None
+    if device_id:
+        existing_device_student = find_student_by_device_id(device_id)
+        if not existing_device_student:
+            existing_device_student = find_student_by_fingerprint(device_fingerprint, allow_encoded=False)
+    else:
+        existing_device_student = find_student_by_fingerprint(device_fingerprint, allow_encoded=True)
     if existing_device_student and existing_device_student.student_id != student_id:
         return Response({"error": "This device already has a registered account."}, status=409)
 
@@ -620,9 +682,22 @@ def register_student(request):
         same_name = normalize_name(existing_student.name) == normalize_name(name)
         same_section = existing_student.section == section
         same_email = (existing_student.email or "").lower() == email.lower()
+        existing_info = get_student_device_info(existing_student)
 
-        if existing_student.device_fingerprint != device_fingerprint:
-            return Response({"error": "Student already registered on another device."}, status=409)
+        if existing_info["device_id"] and device_id:
+            if existing_info["device_id"] != device_id:
+                return Response({"error": "Student already registered on another device."}, status=409)
+        elif existing_info["device_id"] and not device_id:
+            if existing_info["device_fingerprint"] != device_fingerprint:
+                return Response({"error": "Student already registered on another device."}, status=409)
+        elif not existing_info["device_id"] and device_id:
+            if existing_info["device_fingerprint"] != device_fingerprint:
+                return Response({"error": "Student already registered on another device."}, status=409)
+            existing_student.device_fingerprint = encode_device_binding(device_id, device_fingerprint)
+            existing_student.save(update_fields=["device_fingerprint"])
+        else:
+            if existing_info["device_fingerprint"] != device_fingerprint:
+                return Response({"error": "Student already registered on another device."}, status=409)
 
         # Verify base fingerprint matches locked device
         if existing_student.device_base_fingerprint and existing_student.device_base_fingerprint != device_base_fingerprint:
@@ -668,7 +743,7 @@ def register_student(request):
         email=email if email else None,
         section=section,
         public_key=public_key,
-        device_fingerprint=device_fingerprint,
+        device_fingerprint=encode_device_binding(device_id, device_fingerprint),
         device_base_fingerprint=device_base_fingerprint,
     )
 
@@ -697,7 +772,7 @@ def register_student(request):
 def student_login(request):
     student_id = str(request.data.get("student_id", "")).strip()
     section = request.data.get("section")
-    device_fingerprint = str(request.data.get("device_fingerprint", "")).strip()
+    device_id, device_fingerprint = get_request_device_info(request)
     device_base_fingerprint = str(request.data.get("device_base_fingerprint", "")).strip()
     candidate_fingerprints = request.data.get("candidate_fingerprints", [])
     
@@ -734,8 +809,21 @@ def student_login(request):
             status=403,
         )
 
-    # Accept if any candidate fingerprint matches the stored device fingerprint
-    device_authorized = student.device_fingerprint in candidate_fingerprints
+    student_info = get_student_device_info(student)
+    # Device ID is the primary browser/device identifier.
+    device_authorized = False
+    if student_info["device_id"] and device_id:
+        device_authorized = student_info["device_id"] == device_id
+    elif student_info["device_id"] and not device_id:
+        device_authorized = student_info["device_fingerprint"] in candidate_fingerprints
+    elif not student_info["device_id"] and device_id:
+        if student_info["device_fingerprint"] == device_fingerprint:
+            student.device_fingerprint = encode_device_binding(device_id, device_fingerprint)
+            student.save(update_fields=["device_fingerprint"])
+            device_authorized = True
+    else:
+        device_authorized = student_info["device_fingerprint"] in candidate_fingerprints
+
     if not device_authorized:
         return Response(
             {
@@ -771,7 +859,7 @@ def activate_browser(request):
     student_id = str(request.data.get("student_id", "")).strip()
     public_key = str(request.data.get("public_key", "")).strip()
     private_key = str(request.data.get("private_key", "")).strip()
-    device_fingerprint = str(request.data.get("device_fingerprint", "")).strip()
+    device_id, device_fingerprint = get_request_device_info(request)
     device_base_fingerprint = str(request.data.get("device_base_fingerprint", "")).strip()
 
     if not all([student_id, public_key, private_key, device_fingerprint]):
@@ -798,6 +886,32 @@ def activate_browser(request):
             status=403,
         )
 
+    existing_info = get_student_device_info(student)
+    if existing_info["device_id"] and device_id:
+        if existing_info["device_id"] != device_id:
+            return Response(
+                {"error": "This account is registered on a different device."},
+                status=403,
+            )
+    elif existing_info["device_id"] and not device_id:
+        if existing_info["device_fingerprint"] != device_fingerprint:
+            return Response(
+                {"error": "This account is registered on a different device."},
+                status=403,
+            )
+    elif not existing_info["device_id"] and device_id:
+        if existing_info["device_fingerprint"] != device_fingerprint:
+            return Response(
+                {"error": "This account is registered on a different device."},
+                status=403,
+            )
+        student.device_fingerprint = encode_device_binding(device_id, device_fingerprint)
+    elif existing_info["device_fingerprint"] != device_fingerprint:
+        return Response(
+            {"error": "This account is registered on a different device."},
+            status=403,
+        )
+
     if not is_valid_public_key_hex(public_key):
         return Response({"error": "Invalid public key format."}, status=400)
 
@@ -808,7 +922,7 @@ def activate_browser(request):
         )
 
     student.public_key = public_key
-    student.device_fingerprint = device_fingerprint
+    student.device_fingerprint = encode_device_binding(device_id, device_fingerprint)
     # Lock base fingerprint on first activation if not already set
     if not student.device_base_fingerprint:
         student.device_base_fingerprint = device_base_fingerprint
